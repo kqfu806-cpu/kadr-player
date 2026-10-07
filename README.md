@@ -15,11 +15,13 @@ kadr/
 ├── run.sh
 ├── requirements.txt
 ├── README.md
+├── tools/                  ← локальные вспомогательные бинарники (не коммитятся)
 ├── backend/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── config.py           ← пути, модели Ollama, публичные API
 │   ├── main.py             ← FastAPI: библиотека, стрим, FS, WebSocket
+│   ├── audio_fetcher.py    ← необязательный адаптер tools/audiodl.exe (не подключён к UI)
 │   ├── lastfm_client.py    ← Last.fm API с локальным 24-часовым кэшем
 │   ├── lastfm_config.py    ← необязательный LASTFM_API_KEY
 │   ├── scanner.py          ← рекурсивный скан + mutagen (ID3)
@@ -112,6 +114,10 @@ run.bat
 - `GET /api/lastfm/info/{artist}`
 
 Ответы кэшируются локально в `.tools/lastfm_cache/` на 24 часа; журнал — `.tools/lastfm.log`.
+
+### Внешний audio downloader (необязательно)
+
+`backend.audio_fetcher.AudioFetcher` запускает `tools/audiodl.exe`, если пользователь отдельно добавил доверенный бинарник. Он не поставляется с проектом и не подключён к UI. Используйте только для файлов, которые разрешено скачивать; операции и ошибки записываются в `.tools/audio_fetcher.log`.
 
 ### Разработка и проверки
 
