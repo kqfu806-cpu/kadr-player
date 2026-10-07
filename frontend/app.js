@@ -19,6 +19,33 @@
   const waveModeKey = "kurymdyk-wave-mode";
   const waveSettingsKey = "kurymdyk-wave-settings";
   const displayModeStorageKey = "kurymdyk-display-mode";
+  const themeModeStorageKey = "kadr-theme-mode";
+  const accentStorageKey = "kadr-accent";
+  const opacityStorageKey = "kadr-interface-opacity";
+  const accentPresets = new Set([
+    "#2563eb", "#7c3aed", "#0891b2", "#16a34a",
+    "#ea580c", "#e11d48", "#d97706", "#475569",
+  ]);
+  function readAccentPreference() {
+    try {
+      const value = localStorage.getItem(accentStorageKey);
+      return accentPresets.has(value) ? value : "cover";
+    } catch (_) {
+      return "cover";
+    }
+  }
+  function readInterfaceOpacity() {
+    try {
+      const saved = localStorage.getItem(opacityStorageKey);
+      if (saved === null) return 85;
+      const value = Number(saved);
+      return Number.isFinite(value) ? Math.min(100, Math.max(30, value)) : 85;
+    } catch (_) {
+      return 85;
+    }
+  }
+  let customAccentColor = readAccentPreference() === "cover" ? "" : readAccentPreference();
+  let interfaceOpacity = readInterfaceOpacity();
   const displayModes = [
     { id: "clipLyrics", label: "🎬 Клип и текст" },
     { id: "clipOnly", label: "🎬 Только клип" },
@@ -2151,6 +2178,7 @@
     const css = (x) => `rgb(${x.r},${x.g},${x.b})`;
     const root = document.documentElement;
     root.style.setProperty("--glow", `${c1.r}, ${c1.g}, ${c1.b}`);
+    if (customAccentColor || root.getAttribute("data-theme") === "light") return;
     root.style.setProperty("--accent", css({
       r: Math.min(255, c1.r + 36),
       g: Math.min(255, c1.g + 36),
@@ -2159,6 +2187,34 @@
     root.style.setProperty("--accent-1", css(c1));
     root.style.setProperty("--accent-2", css(c2));
     root.style.setProperty("--accent-3", css(c3));
+  }
+  function applyAccent(color, persist = false) {
+    const root = document.documentElement;
+    customAccentColor = accentPresets.has(color) ? color : "";
+    if (customAccentColor) {
+      root.dataset.accentCustom = "true";
+      root.style.setProperty("--accent", customAccentColor);
+      root.style.setProperty("--accent-1", customAccentColor);
+      root.style.setProperty("--accent-2", `color-mix(in srgb, ${customAccentColor} 78%, white)`);
+      root.style.setProperty("--accent-3", `color-mix(in srgb, ${customAccentColor} 52%, white)`);
+      const red = parseInt(customAccentColor.slice(1, 3), 16);
+      const green = parseInt(customAccentColor.slice(3, 5), 16);
+      const blue = parseInt(customAccentColor.slice(5, 7), 16);
+      root.style.setProperty("--glow", `${red}, ${green}, ${blue}`);
+    } else {
+      root.removeAttribute("data-accent-custom");
+      for (const property of ["--accent", "--accent-1", "--accent-2", "--accent-3", "--glow"]) {
+        root.style.removeProperty(property);
+      }
+    }
+    if (persist) {
+      try {
+        if (customAccentColor) localStorage.setItem(accentStorageKey, customAccentColor);
+        else localStorage.removeItem(accentStorageKey);
+      } catch (_) {}
+    }
+    const cover = $("coverImg");
+    if (!customAccentColor && cover?.complete && cover.naturalWidth) paintFromCover(cover);
   }
   function paintFromCover(img) {
     try {
@@ -2683,26 +2739,101 @@
   function applyTheme(t) {
     const theme = t === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", theme);
+    if (!customAccentColor) {
+      for (const property of ["--accent", "--accent-1", "--accent-2", "--accent-3"]) {
+        document.documentElement.style.removeProperty(property);
+      }
+      const cover = $("coverImg");
+      if (theme === "dark" && cover?.complete && cover.naturalWidth) paintFromCover(cover);
+    }
     try { localStorage.setItem("kadr-theme", theme); } catch (_) {}
+    const opacity = interfaceOpacity / 100;
+    const baseAlpha = theme === "light" ? 0.55 : 0.07;
+    document.documentElement.style.setProperty(
+      "--glass",
+      `rgba(255, 255, 255, ${baseAlpha * opacity})`
+    );
     const btn = $("btnTheme");
     if (btn) {
       btn.innerHTML = theme === "light" ? ICO_SUN : ICO_MOON;
       btn.title = theme === "light" ? "Светлая тема" : "Тёмная тема";
     }
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", theme === "light" ? "#e8e4dc" : "#0a0a0c");
+    if (meta) meta.setAttribute("content", theme === "light" ? "#f5f5f7" : "#0a0a0c");
   }
 
   (function themeToggle() {
     const btn = $("btnTheme");
     if (!btn) return;
-    applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
+    const settings = $("themeSettings");
+    const settingsButton = $("btnThemeSettings");
+    const themeSelect = $("themePreference");
+    const accentSelect = $("accentChoice");
+    const opacitySlider = $("interfaceOpacity");
+    const opacityValue = $("interfaceOpacityValue");
+    let themeMode = "dark";
+    try {
+      const saved = localStorage.getItem(themeModeStorageKey) || localStorage.getItem("kadr-theme");
+      if (["dark", "light", "auto"].includes(saved)) themeMode = saved;
+    } catch (_) {}
+    const themeForMode = (mode) => mode === "auto"
+      ? (new Date().getHours() >= 7 && new Date().getHours() < 19 ? "light" : "dark")
+      : mode;
+    const applyThemeMode = (mode, persist = true) => {
+      if (!["dark", "light", "auto"].includes(mode)) return;
+      themeMode = mode;
+      applyTheme(themeForMode(mode));
+      if (themeSelect) themeSelect.value = mode;
+      if (persist) {
+        try { localStorage.setItem(themeModeStorageKey, mode); } catch (_) {}
+      }
+    };
+
+    applyAccent(readAccentPreference());
+    applyThemeMode(themeMode, false);
+    if (themeSelect) {
+      themeSelect.addEventListener("change", () => applyThemeMode(themeSelect.value));
+    }
+    if (accentSelect) {
+      accentSelect.value = readAccentPreference();
+      accentSelect.addEventListener("change", () => applyAccent(accentSelect.value, true));
+    }
+    interfaceOpacity = readInterfaceOpacity();
+    if (opacitySlider) opacitySlider.value = String(interfaceOpacity);
+    if (opacityValue) opacityValue.value = `${interfaceOpacity}%`;
+    opacitySlider?.addEventListener("input", () => {
+      interfaceOpacity = Math.min(100, Math.max(30, Number(opacitySlider.value) || 85));
+      if (opacityValue) opacityValue.value = `${interfaceOpacity}%`;
+      applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
+      try { localStorage.setItem(opacityStorageKey, String(interfaceOpacity)); } catch (_) {}
+    });
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       const cur = document.documentElement.getAttribute("data-theme") || "dark";
-      applyTheme(cur === "dark" ? "light" : "dark");
+      applyThemeMode(cur === "dark" ? "light" : "dark");
     });
+    settingsButton?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = settings.classList.toggle("hidden") === false;
+      settingsButton.setAttribute("aria-expanded", String(open));
+    });
+    document.addEventListener("click", (event) => {
+      if (settings && !settings.classList.contains("hidden") &&
+          !settings.contains(event.target) && !settingsButton?.contains(event.target)) {
+        settings.classList.add("hidden");
+        settingsButton?.setAttribute("aria-expanded", "false");
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && settings && !settings.classList.contains("hidden")) {
+        settings.classList.add("hidden");
+        settingsButton?.setAttribute("aria-expanded", "false");
+      }
+    });
+    window.setInterval(() => {
+      if (themeMode === "auto") applyTheme(themeForMode(themeMode));
+    }, 60_000);
   })();
 
   function updateNowPlaying() {

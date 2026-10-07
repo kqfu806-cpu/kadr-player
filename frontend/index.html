@@ -7,8 +7,10 @@
   <script>
     (function () {
       try {
-        var t = localStorage.getItem("kadr-theme") || "dark";
-        document.documentElement.setAttribute("data-theme", t);
+        var mode = localStorage.getItem("kadr-theme-mode") || localStorage.getItem("kadr-theme") || "dark";
+        var hour = new Date().getHours();
+        var theme = mode === "auto" ? (hour >= 7 && hour < 19 ? "light" : "dark") : mode;
+        document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark");
       } catch (e) {
         document.documentElement.setAttribute("data-theme", "dark");
       }
@@ -18,7 +20,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=16" />
+  <link rel="stylesheet" href="/static/styles.css?v=17" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -67,6 +69,7 @@
         <button class="btn ghost" id="btnInstall" title="Установить как приложение" hidden>На рабочий стол</button>
         <button class="btn ghost" id="btnBrowse" title="Выбрать папку с музыкой">Папка…</button>
         <button type="button" class="btn ghost" id="btnTheme" title="Тема" aria-label="Тема">☾</button>
+        <button type="button" class="btn ghost" id="btnThemeSettings" title="Настроить оформление" aria-label="Настроить оформление" aria-expanded="false">⚙</button>
         <button class="btn ghost" id="btnRefresh" title="Пересканировать клипы и обложки">Обновить клипы</button>
         <button class="btn ghost" id="btnQuality" title="Проверить качество библиотеки">Качество</button>
         <div class="status-pill" id="ollamaPill" title="Состояние Ollama">
@@ -74,6 +77,31 @@
           <span class="lbl">Ollama…</span>
         </div>
       </div>
+      <section class="theme-settings hidden glass" id="themeSettings" role="dialog" aria-label="Настройки оформления">
+        <label for="themePreference">Фон
+          <select id="themePreference">
+            <option value="dark">Тёмный</option>
+            <option value="light">Светлый</option>
+            <option value="auto">Автоматически</option>
+          </select>
+        </label>
+        <label for="accentChoice">Акцентный цвет
+          <select id="accentChoice">
+            <option value="cover">Цвет обложки</option>
+            <option value="#2563eb">Синий</option>
+            <option value="#7c3aed">Фиолетовый</option>
+            <option value="#0891b2">Бирюзовый</option>
+            <option value="#16a34a">Зелёный</option>
+            <option value="#ea580c">Оранжевый</option>
+            <option value="#e11d48">Розовый</option>
+            <option value="#d97706">Янтарный</option>
+            <option value="#475569">Сланцевый</option>
+          </select>
+        </label>
+        <label for="interfaceOpacity">Прозрачность интерфейса
+          <span class="theme-opacity-control"><input id="interfaceOpacity" type="range" min="30" max="100" step="5" value="85"><output id="interfaceOpacityValue">85%</output></span>
+        </label>
+      </section>
     </header>
 
     <div class="layout" id="layout">

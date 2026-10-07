@@ -30,20 +30,20 @@
 html[data-theme="light"],
 html[data-theme="light"] body,
 [data-theme="light"] {
-  --bg: #e8e4dc;
-  --overlay: rgba(232, 228, 220, 0.25);
-  --text: #1a1916;
-  --muted: rgba(26, 25, 22, 0.55);
-  --accent: #3a342c;
-  --accent-1: #3a342c;
-  --accent-2: #6a6258;
-  --accent-3: #9a9084;
-  --glow: 80, 70, 55;
+  --bg: #f5f5f7;
+  --overlay: rgba(245, 245, 247, 0.18);
+  --text: #1a1a1a;
+  --muted: rgba(26, 26, 26, 0.58);
+  --accent: #2563eb;
+  --accent-1: #2563eb;
+  --accent-2: #3b82f6;
+  --accent-3: #93c5fd;
+  --glow: 37, 99, 235;
   --glass: rgba(255, 255, 255, 0.55);
-  --stroke: rgba(255, 255, 255, 0.9);
-  --clip: #3a342c;
-  --cover: #5c4a28;
-  --ph: #5a564e;
+  --stroke: rgba(26, 26, 26, 0.12);
+  --clip: #2563eb;
+  --cover: #1d4ed8;
+  --ph: #4b5563;
   --bg-bright: 1;
 }
 
@@ -307,6 +307,33 @@ button { cursor: pointer; }
   white-space: nowrap;
 }
 .top-actions { order: 5; display: flex; align-items: center; gap: 0.45rem; flex: 0 0 auto; }
+.theme-settings {
+  position: fixed;
+  z-index: 100;
+  top: 4.4rem;
+  right: 1rem;
+  display: grid;
+  gap: 0.85rem;
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid var(--stroke);
+  border-radius: 1rem;
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.22);
+}
+.theme-settings label { display: grid; gap: 0.4rem; color: var(--text); font-size: 0.78rem; }
+.theme-settings select {
+  width: 100%;
+  min-height: 2.4rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--stroke);
+  border-radius: 0.65rem;
+  color: var(--text);
+  background: var(--bg);
+  font: inherit;
+}
+.theme-opacity-control { display: flex; align-items: center; gap: 0.6rem; }
+.theme-opacity-control input { flex: 1; min-width: 0; }
+.theme-opacity-control output { width: 2.8rem; color: var(--muted); text-align: right; }
 
 .btn {
   border: 1px solid var(--stroke);
@@ -322,6 +349,11 @@ button { cursor: pointer; }
   border-color: transparent;
   font-weight: 650;
   box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.35);
+}
+html[data-theme="light"] .btn.primary,
+html[data-accent-custom="true"] .btn.primary {
+  background: var(--accent-1);
+  color: #fff;
 }
 .btn.primary:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn.ghost { background: rgba(255,255,255,0.05); }
