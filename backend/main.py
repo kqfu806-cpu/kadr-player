@@ -157,6 +157,7 @@ uncensored_replace_state: dict[str, Any] = {
     "error": None,
 }
 wave_embedding_task: asyncio.Task[int] | None = None
+wave_embedding_maintenance_task: asyncio.Task[None] | None = None
 wave_embedding_state: dict[str, Any] = {
     "status": "idle",
     "embedded": 0,
@@ -240,6 +241,16 @@ async def _startup() -> None:
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
+    global wave_embedding_task, wave_embedding_maintenance_task
+    tasks = [
+        task
+        for task in (wave_embedding_task, wave_embedding_maintenance_task)
+        if task and not task.done()
+    ]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
     if http_client:
         await http_client.aclose()
     lastfm_client.client = None
@@ -559,10 +570,36 @@ async def api_stats_export_csv() -> Response:
     )
 
 
+async def _daily_wave_embedding_refresh() -> None:
+    while True:
+        await asyncio.sleep(24 * 60 * 60)
+        try:
+            if not library:
+                continue
+            if wave_embedding_task and not wave_embedding_task.done():
+                await wave_embedding_task
+            await _start_wave_embedding_warmup()
+            if wave_embedding_task:
+                await wave_embedding_task
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger("kadr.wave").exception(
+                "Daily embedding refresh failed; will retry tomorrow"
+            )
+
+
 async def _start_wave_embedding_warmup() -> None:
-    global wave_embedding_task
+    global wave_embedding_task, wave_embedding_maintenance_task
     if not library:
         raise HTTPException(400, "Сначала выберите папку с музыкой")
+    if (
+        wave_embedding_maintenance_task is None
+        or wave_embedding_maintenance_task.done()
+    ):
+        wave_embedding_maintenance_task = asyncio.create_task(
+            _daily_wave_embedding_refresh()
+        )
     existing = wave_engine.load_embeddings()
     matching = sum(1 for track_id in library if track_id in existing)
     missing = len(library) - matching

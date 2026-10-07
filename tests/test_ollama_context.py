@@ -44,6 +44,21 @@ async def test_embedding_request_uses_model_context_limit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_embedding_batch_uses_embed_endpoint_and_context_limit() -> None:
+    client = FakeHttpClient({"embeddings": [[0.1, 0.2], [0.3, 0.4]]})
+    ollama = OllamaClient()
+    ollama.status.online = True
+    ollama.status.models["nomic-embed-text"] = True
+
+    result = await ollama.embed_batch(client, ["first", "second"])
+
+    assert result == [[0.1, 0.2], [0.3, 0.4]]
+    assert client.calls[0]["url"].endswith("/api/embed")
+    assert client.calls[0]["json"]["input"] == ["first", "second"]
+    assert client.calls[0]["json"]["options"]["num_ctx"] == OLLAMA_EMBED_NUM_CTX
+
+
+@pytest.mark.asyncio
 async def test_llm_request_uses_model_context_limit() -> None:
     client = FakeHttpClient({"response": "ok"})
     ollama = OllamaClient()

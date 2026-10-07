@@ -25,8 +25,10 @@ SIGNAL_WEIGHTS = {"skip": -1.0, "complete": 1.0, "like": 3.0, "dislike": -5.0}
 EMBEDDING_BATCH_SIZE = 24
 MAX_TRACKS_PER_SIMILAR_SIGNAL = 3
 _mood_lock = asyncio.Lock()
+_mood_embedding_lock = asyncio.Lock()
 _last_mood_request = 0.0
 _cached_mood: tuple[float, str] = (0.0, "")
+_cached_mood_embedding: tuple[float, str, list[float]] = (0.0, "", [])
 
 
 @contextmanager
@@ -157,15 +159,45 @@ async def ensure_embeddings(
     computed = 0
     for offset in range(0, len(pending), EMBEDDING_BATCH_SIZE):
         batch = pending[offset : offset + EMBEDDING_BATCH_SIZE]
-        for track in batch:
-            text = f"{track.artist}. {track.title}. {track.album}."
-            vector = await ollama.embed(client, text)
+        texts = [f"{track.artist}. {track.title}. {track.album}." for track in batch]
+        batch_embed = getattr(ollama, "embed_batch", None)
+        vectors = await batch_embed(client, texts) if callable(batch_embed) else None
+        if not isinstance(vectors, list) or len(vectors) != len(batch):
+            vectors = []
+            for track, text in zip(batch, texts):
+                vector = await ollama.embed(client, text)
+                if not vector:
+                    log.warning("Embedding generation stopped at track %s", track.id)
+                    return computed
+                vectors.append(vector)
+        for track, vector in zip(batch, vectors):
             if not vector:
-                log.warning("Embedding generation stopped at track %s", track.id)
+                log.warning("Embedding batch returned no vector for track %s", track.id)
                 return computed
             store_embedding(track.id, vector, db_path)
             computed += 1
     return computed
+
+
+async def _mood_embedding(
+    mood_text: str,
+    client: httpx.AsyncClient,
+    ollama: OllamaClient,
+) -> list[float] | None:
+    global _cached_mood_embedding
+    now = asyncio.get_running_loop().time()
+    cached_until, cached_text, vector = _cached_mood_embedding
+    if cached_until > now and cached_text == mood_text:
+        return vector
+    async with _mood_embedding_lock:
+        now = asyncio.get_running_loop().time()
+        cached_until, cached_text, vector = _cached_mood_embedding
+        if cached_until > now and cached_text == mood_text:
+            return vector
+        vector = await ollama.embed(client, mood_text)
+        if vector:
+            _cached_mood_embedding = (now + 300, mood_text, vector)
+        return vector
 
 
 def _listening_data(
@@ -319,7 +351,7 @@ async def recommend(
     ]
     mood_vector = None
     if client and ollama and mood_text and ollama.status.models.get("nomic-embed-text"):
-        mood_vector = await ollama.embed(client, mood_text)
+        mood_vector = await _mood_embedding(mood_text, client, ollama)
 
     now = datetime.now(timezone.utc)
     artist_play_count: dict[str, int] = {}

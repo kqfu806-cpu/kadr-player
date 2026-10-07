@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import time
 from io import BytesIO
@@ -167,6 +168,41 @@ class OllamaClient:
                     return list(data["embeddings"][0])
             except Exception:
                 continue
+        return None
+
+    async def embed_batch(
+        self, client: httpx.AsyncClient, texts: list[str]
+    ) -> list[list[float]] | None:
+        """Embed a batch when the installed Ollama API supports it."""
+        if not texts:
+            return []
+        await self._maybe_revive(client)
+        if not self.status.models.get(OLLAMA_EMBED):
+            return None
+        try:
+            response = await client.post(
+                f"{self.base}/api/embed",
+                json={
+                    "model": OLLAMA_EMBED,
+                    "input": texts,
+                    "options": {"num_ctx": OLLAMA_EMBED_NUM_CTX},
+                },
+                timeout=OLLAMA_EMBED_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            embeddings = payload.get("embeddings") if isinstance(payload, dict) else None
+            if (
+                isinstance(embeddings, list)
+                and len(embeddings) == len(texts)
+                and all(isinstance(vector, list) and vector for vector in embeddings)
+            ):
+                return embeddings
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            logging.getLogger("kadr.ollama").info(
+                "Ollama embedding batch unavailable; will use single requests: %s",
+                exc,
+            )
         return None
 
     async def generate(

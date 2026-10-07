@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -60,6 +61,41 @@ async def test_ensure_embeddings_only_generates_missing_tracks(tmp_path: Path) -
     assert computed == 1
     assert len(calls) == 1
     assert set(wave.load_embeddings(db_path)) == {"first", "second"}
+
+
+@pytest.mark.asyncio
+async def test_ensure_embeddings_batches_missing_tracks_and_reuses_cache(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "wave.sqlite3"
+    wave.store_embedding("cached", [1.0, 0.0], db_path)
+
+    class Ollama:
+        status = SimpleNamespace(models={"nomic-embed-text": True})
+        batches: list[list[str]] = []
+
+        async def embed_batch(self, _client, texts: list[str]) -> list[list[float]]:
+            self.batches.append(texts)
+            return [[0.0, 1.0] for _ in texts]
+
+        async def embed(self, _client, _text: str) -> list[float]:
+            raise AssertionError("single embeddings should not be used when batch succeeds")
+
+    ollama = Ollama()
+    tracks = [make_track("cached"), make_track("new-a"), make_track("new-b")]
+
+    computed = await wave.ensure_embeddings(
+        tracks, object(), ollama, db_path=db_path  # type: ignore[arg-type]
+    )
+    repeated = await wave.ensure_embeddings(
+        tracks, object(), ollama, db_path=db_path  # type: ignore[arg-type]
+    )
+
+    assert computed == 2
+    assert repeated == 0
+    assert len(ollama.batches) == 1
+    assert len(ollama.batches[0]) == 2
+    assert set(wave.load_embeddings(db_path)) == {"cached", "new-a", "new-b"}
 
 
 def test_signal_weights_and_skip_penalizes_nearest_tracks(tmp_path: Path) -> None:
@@ -166,3 +202,24 @@ def test_wave_endpoints_validate_and_save_feedback(client: TestClient) -> None:
     )
     assert liked.status_code == 200
     assert liked.json()["weight"] == 3
+
+
+@pytest.mark.asyncio
+async def test_embedding_warmup_schedules_daily_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    track = make_track("cached")
+    monkeypatch.setattr(app_module, "library", {"cached": track})
+    monkeypatch.setattr(app_module, "wave_embedding_maintenance_task", None)
+    monkeypatch.setattr(
+        app_module.wave_engine, "load_embeddings", lambda: {"cached": [1.0]}
+    )
+
+    await app_module._start_wave_embedding_warmup()
+    task = app_module.wave_embedding_maintenance_task
+
+    assert task is not None
+    assert not task.done()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

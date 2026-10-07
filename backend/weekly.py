@@ -214,10 +214,27 @@ async def _embedding_scores(
         reverse=True,
     )[:MAX_EMBEDDING_CANDIDATES]
     scores: dict[tuple[str, str], float] = {}
-    for item in ranked:
+    texts = [
+        f"{item['artist']}. {item['title']}."
+        for item in ranked
+    ]
+    batch_embed = getattr(ollama, "embed_batch", None)
+    vectors_by_candidate = await batch_embed(client, texts) if callable(batch_embed) else None
+    if not isinstance(vectors_by_candidate, list) or len(vectors_by_candidate) != len(ranked):
+        vectors_by_candidate = []
+        for item, text in zip(ranked, texts):
+            vector = await ollama.embed(client, text)
+            if not vector:
+                log.info(
+                    "Weekly embedding ranking stopped at candidate %s — %s",
+                    item.get("artist"),
+                    item.get("title"),
+                )
+                break
+            vectors_by_candidate.append(vector)
+    for item, vector in zip(ranked, vectors_by_candidate):
         artist = str(item.get("artist") or "")
         title = str(item.get("title") or "")
-        vector = await ollama.embed(client, f"{artist}. {title}.")
         if not vector:
             log.info("Weekly embedding ranking stopped at candidate %s — %s", artist, title)
             break
