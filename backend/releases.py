@@ -122,6 +122,7 @@ async def _single_tracks(
                 "preview": preview,
                 "cover": release["cover"],
                 "source": "Deezer",
+                "release_type": release["type"],
             }
         )
     return rows

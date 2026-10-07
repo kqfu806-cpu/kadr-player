@@ -51,6 +51,7 @@ from . import stats as listening_stats
 from .uncensored_finder import find_candidates
 from .uncensored_replacer import replace_track
 from . import wave as wave_engine
+from . import weekly as weekly_engine
 
 # Windows-консоль: нормальный UTF-8 для кириллицы в логах
 if sys.platform == "win32":
@@ -671,6 +672,35 @@ async def api_new_releases(body: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         days = 7
     return await fetch_weekly_releases(_client(), artists, days, local_tracks)
+
+
+async def _weekly_snapshot(force: bool = False) -> dict[str, Any]:
+    if not library:
+        raise HTTPException(400, "Сначала выберите папку с музыкой")
+    return await weekly_engine.get_weekly(
+        _client(),
+        lastfm_client,
+        list(library.values()),
+        ollama=ollama,
+        force=force,
+    )
+
+
+@app.get("/api/weekly/tracks")
+async def api_weekly_tracks() -> dict[str, Any]:
+    data = await _weekly_snapshot()
+    return {key: value for key, value in data.items() if key != "albums"}
+
+
+@app.get("/api/weekly/albums")
+async def api_weekly_albums() -> dict[str, Any]:
+    data = await _weekly_snapshot()
+    return {key: value for key, value in data.items() if key != "tracks"}
+
+
+@app.post("/api/weekly/refresh")
+async def api_weekly_refresh() -> dict[str, Any]:
+    return await _weekly_snapshot(force=True)
 
 
 @app.get("/api/library")

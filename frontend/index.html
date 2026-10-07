@@ -18,7 +18,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=13" />
+  <link rel="stylesheet" href="/static/styles.css?v=14" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -56,6 +56,7 @@
         <button class="btn ghost" id="btnRefresh" title="Пересканировать клипы и обложки">Обновить клипы</button>
         <button class="btn ghost" id="btnQuality" title="Проверить качество библиотеки">Качество</button>
         <button class="btn ghost" id="btnStats" type="button">Статистика</button>
+        <button class="btn ghost" id="btnWeekly" type="button">Подборка недели</button>
         <button class="btn ghost" id="btnWave" type="button" aria-pressed="false">Моя волна</button>
         <div class="status-pill" id="ollamaPill" title="Состояние Ollama">
           <span class="dot"></span>
@@ -185,6 +186,22 @@
                 </div>
               </section>
             </div>
+          </section>
+
+          <section class="weekly-page hidden" id="weeklyPage" aria-live="polite">
+            <header class="profile-toolbar weekly-toolbar">
+              <button class="btn ghost" id="weeklyBack" type="button">← К плееру</button>
+              <div class="weekly-heading">
+                <h1>Подборка недели</h1>
+                <span class="muted" id="weeklyStatus">Релизы за последние 7 дней</span>
+              </div>
+              <button class="btn primary" id="weeklyRefresh" type="button">Обновить</button>
+            </header>
+            <div class="weekly-tabs" role="tablist" aria-label="Подборка недели">
+              <button class="release-tab on" id="weeklyTabTracks" type="button" role="tab" aria-selected="true">Треки</button>
+              <button class="release-tab" id="weeklyTabAlbums" type="button" role="tab" aria-selected="false">Альбомы</button>
+            </div>
+            <div class="weekly-cards" id="weeklyCards"></div>
           </section>
 
           <div class="media-layer hidden" id="mediaLayer">
@@ -345,6 +362,6 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/static/vendor/anime.js"></script>
-  <script src="/static/app.js?v=15"></script>
+  <script src="/static/app.js?v=16"></script>
 </body>
 </html>

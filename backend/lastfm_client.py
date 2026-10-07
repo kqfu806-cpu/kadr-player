@@ -108,6 +108,21 @@ class LastFmClient:
         tags = _response_items(payload, "toptags", "tag")
         return tags[: self._limit(limit)]
 
+    async def get_chart_top_tracks(self, limit: int = 100) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "chart.getTopTracks", {"limit": self._limit(limit)}
+        )
+        return _response_items(payload, "tracks", "track")
+
+    async def get_tag_top_tracks(
+        self, tag: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "tag.getTopTracks",
+            {"tag": self._required(tag, "tag"), "limit": self._limit(limit)},
+        )
+        return _response_items(payload, "tracks", "track")
+
     async def get_artist_info(self, artist: str) -> dict[str, Any]:
         payload = await self._request(
             "artist.getInfo", {"artist": self._required(artist, "artist")}

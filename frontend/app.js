@@ -13,6 +13,15 @@
   const favoritesKey = "kadr-favorites";
   const followedArtistsKey = "kurymdyk-followed-artists";
   const weeklyReleasesKey = "kurymdyk-weekly-releases";
+  const weeklySavedKey = "kurymdyk-weekly-saved";
+  const weeklySaved = (() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(weeklySavedKey) || "[]");
+      return new Set(Array.isArray(value) ? value.filter((id) => typeof id === "string") : []);
+    } catch (_) {
+      return new Set();
+    }
+  })();
   function readFavorites() {
     try {
       const value = JSON.parse(localStorage.getItem(favoritesKey) || "[]");
@@ -70,6 +79,8 @@
     artistsLoaded: false,
     followedArtists: readFollowedArtists(),
     releaseTab: "tracks",
+    weeklyTab: "tracks",
+    weeklyData: null,
     sideTab: "tracks",
     artistFilter: "",
     favorites: readFavorites(),
@@ -2752,6 +2763,133 @@
     api(`/api/stats/top?period=${encodeURIComponent($("statsPeriod").value)}`)
       .then(renderStatsTop)
       .catch((error) => { $("statsStatus").textContent = `Не удалось обновить топ: ${error.message}`; });
+  });
+
+  function weeklyKey(item) {
+    return encodeURIComponent(
+      [item.artist, item.title, item.date].map((value) => String(value || "")).join("\u001f"),
+    );
+  }
+
+  function weeklyExternalUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "www.deezer.com" ? url.href : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function weeklyCoverUrl(value) {
+    try {
+      const url = new URL(value);
+      const host = url.hostname.toLowerCase();
+      return url.protocol === "https:" &&
+        (host === "deezer.com" || host.endsWith(".deezer.com") || host.endsWith(".dzcdn.net"))
+        ? url.href
+        : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function setWeeklyTab(tab) {
+    state.weeklyTab = tab === "albums" ? "albums" : "tracks";
+    const tracksOn = state.weeklyTab === "tracks";
+    $("weeklyTabTracks").classList.toggle("on", tracksOn);
+    $("weeklyTabAlbums").classList.toggle("on", !tracksOn);
+    $("weeklyTabTracks").setAttribute("aria-selected", String(tracksOn));
+    $("weeklyTabAlbums").setAttribute("aria-selected", String(!tracksOn));
+    renderWeeklyItems();
+  }
+
+  function renderWeeklyItems(data) {
+    const host = $("weeklyCards");
+    if (!host) return;
+    const weeklyData = data || state.weeklyData || {};
+    const items = weeklyData[state.weeklyTab] || [];
+    if (!items.length) {
+      host.innerHTML = `<p class="weekly-empty">${esc(weeklyData.warnings?.[0] || "Новых релизов за последние 7 дней не найдено.")}</p>`;
+      return;
+    }
+    host.innerHTML = items.map((item) => {
+      const key = weeklyKey(item);
+      const saved = weeklySaved.has(key);
+      const cover = weeklyCoverUrl(item.cover);
+      const link = weeklyExternalUrl(item.url);
+      let releaseDate = item.date || "Дата неизвестна";
+      if (item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)) {
+        releaseDate = new Date(`${item.date}T00:00:00`).toLocaleDateString("ru-RU", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+      }
+      return `<article class="weekly-card">` +
+        `${cover ? `<img class="weekly-cover" src="${esc(cover)}" alt="" loading="lazy">` : `<div class="weekly-cover" aria-hidden="true"></div>`}` +
+        `<div class="weekly-card-info"><span class="weekly-card-title" title="${esc(item.title)}">${esc(item.title)}</span>` +
+        `<span class="weekly-card-meta">${esc(item.artist)} · ${esc(releaseDate)}</span></div>` +
+        `<div class="weekly-card-actions">` +
+        `${link ? `<a class="btn ghost" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Прослушать на Deezer ↗</a>` : ""}` +
+        `${saved ? `<span class="weekly-saved">Отмечено · не скачано</span>` : `<button class="btn ghost" type="button" data-weekly-save="${esc(key)}">Сохранить в библиотеку</button>`}` +
+        `</div></article>`;
+    }).join("");
+  }
+
+  async function loadWeekly(force = false) {
+    const status = $("weeklyStatus");
+    const refresh = $("weeklyRefresh");
+    if (refresh) refresh.disabled = true;
+    if (status) status.textContent = force ? "Обновляю подборку…" : "Загружаю подборку…";
+    try {
+      const data = force
+        ? await api("/api/weekly/refresh", { method: "POST" })
+        : await (async () => {
+          const [tracks, albums] = await Promise.all([
+            api("/api/weekly/tracks"),
+            api("/api/weekly/albums"),
+          ]);
+          return { ...tracks, ...albums };
+        })();
+      state.weeklyData = data;
+      const count = (data.tracks || []).length + (data.albums || []).length;
+      const warning = data.warnings?.[0];
+      if (status) status.textContent = warning || `${count} релизов · последние 7 дней · ${data.source || "каталог"}`;
+      renderWeeklyItems(data);
+    } catch (error) {
+      state.weeklyData = { tracks: [], albums: [], warnings: [] };
+      if (status) status.textContent = `Не удалось загрузить подборку: ${error.message}`;
+      $("weeklyCards").innerHTML = `<p class="weekly-empty">Проверьте подключение и просканированную музыкальную библиотеку.</p>`;
+    } finally {
+      if (refresh) refresh.disabled = false;
+    }
+  }
+
+  function openWeekly() {
+    $("welcome").classList.add("hidden");
+    $("mediaLayer").classList.add("hidden");
+    $("artistProfile").classList.add("hidden");
+    $("listeningStats").classList.add("hidden");
+    $("weeklyPage").classList.remove("hidden");
+    setWeeklyTab(state.weeklyTab);
+    loadWeekly(false);
+  }
+
+  $("btnWeekly")?.addEventListener("click", openWeekly);
+  $("weeklyBack")?.addEventListener("click", () => {
+    $("weeklyPage").classList.add("hidden");
+    showWelcome(!currentTrack());
+  });
+  $("weeklyRefresh")?.addEventListener("click", () => loadWeekly(true));
+  $("weeklyTabTracks")?.addEventListener("click", () => setWeeklyTab("tracks"));
+  $("weeklyTabAlbums")?.addEventListener("click", () => setWeeklyTab("albums"));
+  $("weeklyCards")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-weekly-save]");
+    if (!button) return;
+    const key = button.dataset.weeklySave;
+    weeklySaved.add(key);
+    try { localStorage.setItem(weeklySavedKey, JSON.stringify([...weeklySaved])); } catch (_) {}
+    renderWeeklyItems(state.weeklyData || {});
   });
 
   function profileSource(url) {
