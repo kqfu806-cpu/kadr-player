@@ -13,6 +13,8 @@
   const favoritesKey = "kadr-favorites";
   const followedArtistsKey = "kurymdyk-followed-artists";
   const weeklyReleasesKey = "kurymdyk-weekly-releases";
+  const activeSectionKey = "kurymdyk-active-section";
+  const lastArtistKey = "kurymdyk-last-artist";
   const weeklySavedKey = "kurymdyk-weekly-saved";
   const weeklySaved = (() => {
     try {
@@ -37,6 +39,17 @@
       return new Set(Array.isArray(value) ? value.filter((name) => typeof name === "string") : []);
     } catch (_) {
       return new Set();
+    }
+  }
+
+  function readActiveSection() {
+    try {
+      const section = localStorage.getItem(activeSectionKey);
+      return ["library", "wave", "weekly", "artists", "stats", "profile"].includes(section)
+        ? section
+        : "library";
+    } catch (_) {
+      return "library";
     }
   }
 
@@ -81,8 +94,10 @@
     releaseTab: "tracks",
     weeklyTab: "tracks",
     weeklyData: null,
+    activeSection: readActiveSection(),
     sideTab: "tracks",
     artistFilter: "",
+    albumFilter: "",
     favorites: readFavorites(),
     favoritesOnly: false,
     _ollamaWarned: false,
@@ -241,6 +256,18 @@
     return r.json();
   }
 
+  function setActiveSection(section) {
+    state.activeSection = section;
+    try { localStorage.setItem(activeSectionKey, section); } catch (_) {}
+    document.querySelectorAll("#primaryNav [data-section]").forEach((button) => {
+      const active = button.dataset.section === section ||
+        (section === "profile" && button.dataset.section === "artists");
+      button.classList.toggle("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+  }
+
   // ---------- плейлист (виртуальный скролл) ----------
   function rowH() {
     const v = getComputedStyle(document.documentElement).getPropertyValue("--row");
@@ -257,6 +284,7 @@
       t._i = i;
       if (state.favoritesOnly && !state.favorites.has(t.id)) continue;
       if (state.artistFilter && !`${t.artist} ${t.title} ${t.album} ${t.filename}`.toLowerCase().includes(state.artistFilter.toLowerCase())) continue;
+      if (state.albumFilter && t.album.toLowerCase() !== state.albumFilter.toLowerCase()) continue;
       if (!q) {
         src.push(t);
         continue;
@@ -541,6 +569,15 @@
     $("mediaLayer").classList.toggle("hidden", on);
   }
 
+  function showLibrarySection() {
+    setActiveSection("library");
+    $("artistProfile").classList.add("hidden");
+    $("listeningStats").classList.add("hidden");
+    $("weeklyPage").classList.add("hidden");
+    $("globalSearch").placeholder = "Поиск по библиотеке…  /";
+    showWelcome(!currentTrack());
+  }
+
   async function playIndex(i, fromWave) {
     if (i < 0 || i >= state.tracks.length) return;
     if (state.waveMode && !fromWave) {
@@ -634,6 +671,8 @@
     const url = coverUrlOf(data);
     coverLsSet(data.track_id || (cur && cur.id), url, !!data.placeholder);
     setCover(url);
+    const playerCover = $("playerCover");
+    if (cur && data.track_id === cur.id && playerCover) playerCover.src = url;
   }
 
   async function loadClip(t, gen) {
@@ -828,11 +867,18 @@
   function setWaveMode(enabled) {
     state.waveMode = enabled;
     const button = $("btnWave");
+    const miniButton = $("btnPlayerWave");
     if (button) {
       button.classList.toggle("on", enabled);
       button.setAttribute("aria-pressed", String(enabled));
       button.textContent = enabled ? "Волна · вкл." : "Моя волна";
     }
+    if (miniButton) {
+      miniButton.classList.toggle("on", enabled);
+      miniButton.textContent = enabled ? "Волна · вкл." : "Моя волна";
+    }
+    if (enabled) setActiveSection("wave");
+    else if (state.activeSection === "wave") setActiveSection("library");
     if (!enabled) {
       state.waveQueue = [];
       state.waveReason = "";
@@ -1243,7 +1289,7 @@
     sendWaveSignal("dislike");
     toast("Учту: меньше таких треков");
   });
-  $("btnWave")?.addEventListener("click", startWave);
+  $("btnPlayerWave")?.addEventListener("click", startWave);
   $("btnWaveHero")?.addEventListener("click", startWave);
   $("btnFavoritesFilter").addEventListener("click", toggleFavoritesFilter);
   $("btnNext").addEventListener("click", () => next(false));
@@ -1265,16 +1311,37 @@
 
   document.addEventListener("keydown", (e) => {
     const tag = (e.target && e.target.tagName) || "";
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
-    if (e.code === "Space") {
+    const editable = tag === "INPUT" || tag === "TEXTAREA" ||
+      (e.target && e.target.isContentEditable);
+    if (!editable && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === "/") {
+      e.preventDefault();
+      $("globalSearch").focus();
+      $("globalSearch").select();
+      return;
+    }
+    if (editable) return;
+    if (e.ctrlKey && e.code === "ArrowLeft") {
+      e.preventDefault();
+      prev();
+    } else if (e.ctrlKey && e.code === "ArrowRight") {
+      e.preventDefault();
+      next(false);
+    } else if (e.code === "Space") {
+      if (e.target instanceof HTMLElement && e.target.closest("button, a, select")) return;
       e.preventDefault();
       togglePlay();
     } else if (e.code === "ArrowLeft") {
       e.preventDefault();
-      prev();
+      if (currentTrack()) seekTo(Math.max(0, getPosition() - 5));
     } else if (e.code === "ArrowRight") {
       e.preventDefault();
-      next(false);
+      if (currentTrack()) {
+        const duration = getDuration();
+        seekTo(duration > 0 ? Math.min(duration, getPosition() + 5) : getPosition() + 5);
+      }
+    } else if (e.key === "w" || e.key === "W" || e.key === "ц" || e.key === "Ц") {
+      e.preventDefault();
+      startWave();
     } else if (e.key === "m" || e.key === "M" || e.key === "ь") {
       state.muted = !state.muted;
       applyVolume();
@@ -1283,6 +1350,8 @@
       toggleFullscreen();
     } else if (e.code === "Escape" && (document.fullscreenElement || document.webkitFullscreenElement)) {
       toggleFullscreen(false);
+    } else if (e.code === "Escape") {
+      closeGlobalSearch();
     }
   });
 
@@ -2404,13 +2473,23 @@
     const bar = $("nowPlayingBar");
     const title = $("npTitle");
     const t = currentTrack();
-    if (!bar) return;
     if (!t) {
-      bar.classList.add("hidden");
+      if (bar) bar.classList.add("hidden");
+      $("playerCover")?.removeAttribute("src");
       return;
     }
-    bar.classList.remove("hidden");
+    if (bar) bar.classList.remove("hidden");
     if (title) title.textContent = t.artist + " — " + t.title;
+    const cover = coverLsGet(t.id);
+    const embedded = t.embedded_cover
+      ? `/api/cover/${encodeURIComponent(String(t.embedded_cover).split(/[/\\]/).pop())}`
+      : "";
+    const image = $("playerCover");
+    if (image) {
+      const source = cover || embedded;
+      if (source) image.src = source;
+      else image.removeAttribute("src");
+    }
   }
 
   function flashActive() {
@@ -2434,12 +2513,25 @@
 
   function filterByArtist(name, stay) {
     state.artistFilter = name || "";
+    state.albumFilter = "";
+    setActiveSection("library");
     $("search").value = name || "";
     if (!stay) setSideTab("tracks");
     $("playlistView").scrollTop = 0;
     renderPlaylist();
     const all = $("btnAllTracks");
     if (all) all.classList.toggle("hidden", !name);
+  }
+
+  function filterByAlbum(artist, album) {
+    state.artistFilter = artist || "";
+    state.albumFilter = album || "";
+    $("search").value = album || "";
+    setActiveSection("library");
+    setSideTab("tracks");
+    $("playlistView").scrollTop = 0;
+    renderPlaylist();
+    showWelcome(!currentTrack());
   }
 
   function syncFavoritesFilter() {
@@ -2747,17 +2839,18 @@
   }
 
   function openStats() {
+    setActiveSection("stats");
     $("welcome").classList.add("hidden");
     $("mediaLayer").classList.add("hidden");
     $("artistProfile").classList.add("hidden");
+    $("weeklyPage").classList.add("hidden");
     $("listeningStats").classList.remove("hidden");
     loadStats();
   }
 
-  $("btnStats")?.addEventListener("click", openStats);
   $("statsBack")?.addEventListener("click", () => {
     $("listeningStats").classList.add("hidden");
-    showWelcome(!currentTrack());
+    showLibrarySection();
   });
   $("statsPeriod")?.addEventListener("change", () => {
     api(`/api/stats/top?period=${encodeURIComponent($("statsPeriod").value)}`)
@@ -2866,6 +2959,7 @@
   }
 
   function openWeekly() {
+    setActiveSection("weekly");
     $("welcome").classList.add("hidden");
     $("mediaLayer").classList.add("hidden");
     $("artistProfile").classList.add("hidden");
@@ -2875,10 +2969,9 @@
     loadWeekly(false);
   }
 
-  $("btnWeekly")?.addEventListener("click", openWeekly);
   $("weeklyBack")?.addEventListener("click", () => {
     $("weeklyPage").classList.add("hidden");
-    showWelcome(!currentTrack());
+    showLibrarySection();
   });
   $("weeklyRefresh")?.addEventListener("click", () => loadWeekly(true));
   $("weeklyTabTracks")?.addEventListener("click", () => setWeeklyTab("tracks"));
@@ -2890,6 +2983,157 @@
     weeklySaved.add(key);
     try { localStorage.setItem(weeklySavedKey, JSON.stringify([...weeklySaved])); } catch (_) {}
     renderWeeklyItems(state.weeklyData || {});
+  });
+
+  let globalSearchTimer = 0;
+  let globalSearchActiveIndex = -1;
+
+  function closeGlobalSearch() {
+    const results = $("globalSearchResults");
+    if (!results) return;
+    results.classList.add("hidden");
+    $("globalSearch").setAttribute("aria-expanded", "false");
+    globalSearchActiveIndex = -1;
+  }
+
+  function globalSearchGroups(query) {
+    const normalized = query.toLocaleLowerCase();
+    const tracks = state.tracks
+      .filter((track) => `${track.title} ${track.artist} ${track.album}`.toLocaleLowerCase().includes(normalized))
+      .slice(0, 5);
+    const artistNames = new Map();
+    for (const track of state.tracks) {
+      const artist = track.artist.trim();
+      const key = artist.toLocaleLowerCase();
+      if (artist && key.includes(normalized) && !artistNames.has(key)) artistNames.set(key, artist);
+    }
+    const artists = [...artistNames.values()].slice(0, 5);
+    const seenAlbums = new Set();
+    const albums = state.tracks.filter((track) => {
+      if (!track.album || !`${track.album} ${track.artist}`.toLocaleLowerCase().includes(normalized)) return false;
+      const key = `${track.artist.toLocaleLowerCase()}\u0000${track.album.toLocaleLowerCase()}`;
+      if (seenAlbums.has(key)) return false;
+      seenAlbums.add(key);
+      return true;
+    }).slice(0, 5);
+    return { tracks, artists, albums };
+  }
+
+  function renderGlobalSearch() {
+    const input = $("globalSearch");
+    const panel = $("globalSearchResults");
+    const query = input.value.trim();
+    if (!query) {
+      closeGlobalSearch();
+      return;
+    }
+    if (!state.tracks.length) {
+      panel.innerHTML = `<div class="global-search-empty">Сначала выберите папку с музыкой.</div>`;
+    } else {
+      const groups = globalSearchGroups(query);
+      const sections = [];
+      if (groups.tracks.length) {
+        sections.push(`<section class="global-search-group"><div class="global-search-label">Треки</div>` +
+          groups.tracks.map((track) =>
+            `<button class="global-search-item" type="button" role="option" data-search-kind="track" data-search-id="${esc(track.id)}">` +
+            `<strong>${esc(track.title)}</strong><small>${esc([track.artist, track.album].filter(Boolean).join(" · "))}</small></button>`).join("") +
+          `</section>`);
+      }
+      if (groups.artists.length) {
+        sections.push(`<section class="global-search-group"><div class="global-search-label">Исполнители</div>` +
+          groups.artists.map((artist) =>
+            `<button class="global-search-item" type="button" role="option" data-search-kind="artist" data-search-name="${esc(artist)}">` +
+            `<strong>${esc(artist)}</strong><small>Открыть профиль исполнителя</small></button>`).join("") +
+          `</section>`);
+      }
+      if (groups.albums.length) {
+        sections.push(`<section class="global-search-group"><div class="global-search-label">Альбомы</div>` +
+          groups.albums.map((track) =>
+            `<button class="global-search-item" type="button" role="option" data-search-kind="album" data-search-artist="${esc(track.artist)}" data-search-album="${esc(track.album)}">` +
+            `<strong>${esc(track.album)}</strong><small>${esc(track.artist)}</small></button>`).join("") +
+          `</section>`);
+      }
+      panel.innerHTML = sections.join("") || `<div class="global-search-empty">Ничего не найдено.</div>`;
+    }
+    panel.classList.remove("hidden");
+    input.setAttribute("aria-expanded", "true");
+    globalSearchActiveIndex = -1;
+  }
+
+  function activateGlobalSearchResult(button) {
+    if (!button) return;
+    const kind = button.dataset.searchKind;
+    closeGlobalSearch();
+    if (kind === "track") {
+      const index = state.tracks.findIndex((track) => track.id === button.dataset.searchId);
+      if (index >= 0) {
+        showLibrarySection();
+        playIndex(index);
+      }
+    } else if (kind === "artist") {
+      openArtistProfile(button.dataset.searchName);
+    } else if (kind === "album") {
+      filterByAlbum(button.dataset.searchArtist, button.dataset.searchAlbum);
+    }
+  }
+
+  $("globalSearch")?.addEventListener("input", () => {
+    clearTimeout(globalSearchTimer);
+    globalSearchTimer = setTimeout(renderGlobalSearch, 300);
+  });
+  $("globalSearch")?.addEventListener("focus", () => {
+    if ($("globalSearch").value.trim()) renderGlobalSearch();
+  });
+  $("globalSearch")?.addEventListener("keydown", (event) => {
+    const options = [...$("globalSearchResults").querySelectorAll(".global-search-item")];
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!options.length) return;
+      event.preventDefault();
+      globalSearchActiveIndex = (globalSearchActiveIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+      options.forEach((option, index) => option.setAttribute("aria-selected", String(index === globalSearchActiveIndex)));
+      options[globalSearchActiveIndex].scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter" && globalSearchActiveIndex >= 0) {
+      event.preventDefault();
+      activateGlobalSearchResult(options[globalSearchActiveIndex]);
+    } else if (event.key === "Escape") {
+      closeGlobalSearch();
+    }
+  });
+  $("globalSearchResults")?.addEventListener("click", (event) => {
+    const button = event.target.closest(".global-search-item");
+    if (button) activateGlobalSearchResult(button);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".global-search")) closeGlobalSearch();
+  });
+
+  $("primaryNav")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-section]");
+    if (!button) return;
+    switch (button.dataset.section) {
+      case "library":
+        showLibrarySection();
+        break;
+      case "wave":
+        startWave();
+        break;
+      case "weekly":
+        openWeekly();
+        break;
+      case "artists":
+        setActiveSection("artists");
+        $("artistProfile").classList.add("hidden");
+        $("listeningStats").classList.add("hidden");
+        $("weeklyPage").classList.add("hidden");
+        showWelcome(!currentTrack());
+        setSideTab("artists");
+        $("globalSearch").placeholder = "Поиск исполнителя…";
+        $("globalSearch").focus();
+        break;
+      case "stats":
+        openStats();
+        break;
+    }
   });
 
   function profileSource(url) {
@@ -2953,11 +3197,16 @@
   async function openArtistProfile(name) {
     const profileView = $("artistProfile");
     if (!profileView || !name) return;
+    setActiveSection("profile");
+    $("globalSearch").placeholder = "Поиск исполнителя…";
     $("welcome").classList.add("hidden");
     $("mediaLayer").classList.add("hidden");
+    $("listeningStats").classList.add("hidden");
+    $("weeklyPage").classList.add("hidden");
     profileView.classList.remove("hidden");
     $("profileStatus").textContent = "Загружаю профиль…";
     $("profileContent").innerHTML = "";
+    try { localStorage.setItem(lastArtistKey, name); } catch (_) {}
     try {
       const profile = await api(`/api/artist/${encodeURIComponent(name)}`);
       renderArtistProfile(profile);
@@ -2968,15 +3217,14 @@
   }
 
   $("profileBack")?.addEventListener("click", () => {
-    $("artistProfile").classList.add("hidden");
-    showWelcome(!currentTrack());
+    showLibrarySection();
   });
   $("profileContent")?.addEventListener("click", (event) => {
     const trackButton = event.target.closest("[data-profile-track]");
     if (trackButton) {
       const index = state.tracks.findIndex((track) => track.id === trackButton.dataset.profileTrack);
       if (index >= 0) {
-        $("artistProfile").classList.add("hidden");
+        showLibrarySection();
         playIndex(index);
       }
       return;
@@ -3030,7 +3278,25 @@
   // init
   vol.value = "85";
   applyVolume();
-  loadHealth();
+  loadHealth().then(() => {
+    if (state.activeSection === "weekly") openWeekly();
+    else if (state.activeSection === "stats") openStats();
+    else if (state.activeSection === "artists") {
+      setActiveSection("artists");
+      setSideTab("artists");
+      $("globalSearch").placeholder = "Поиск исполнителя…";
+    } else if (state.activeSection === "profile") {
+      let artist = "";
+      try { artist = localStorage.getItem(lastArtistKey) || ""; } catch (_) {}
+      if (artist) openArtistProfile(artist);
+      else {
+        setActiveSection("artists");
+        setSideTab("artists");
+      }
+    } else {
+      showLibrarySection();
+    }
+  });
   connectWs();
   setInterval(() => { loadHealth(true); }, 30000);
 })();

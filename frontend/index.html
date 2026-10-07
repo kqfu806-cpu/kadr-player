@@ -18,7 +18,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=14" />
+  <link rel="stylesheet" href="/static/styles.css?v=15" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -45,6 +45,20 @@
         </div>
       </div>
 
+      <nav class="primary-nav" id="primaryNav" aria-label="Основная навигация">
+        <button class="nav-link is-active" id="navLibrary" type="button" data-section="library" aria-current="page">Библиотека</button>
+        <button class="nav-link" id="btnWave" type="button" data-section="wave" aria-pressed="false">Моя волна</button>
+        <button class="nav-link" id="btnWeekly" type="button" data-section="weekly">Подборка</button>
+        <button class="nav-link" id="navArtists" type="button" data-section="artists">Исполнители</button>
+        <button class="nav-link" id="btnStats" type="button" data-section="stats">Статистика</button>
+      </nav>
+
+      <div class="global-search">
+        <label class="sr-only" for="globalSearch">Поиск треков, исполнителей и альбомов</label>
+        <input id="globalSearch" type="search" placeholder="Поиск по библиотеке…  /" autocomplete="off" aria-controls="globalSearchResults" aria-expanded="false" />
+        <div class="global-search-results hidden" id="globalSearchResults" role="listbox" aria-label="Результаты поиска"></div>
+      </div>
+
       <div class="folder-chip" id="folderChip" title="Текущая папка">
         <span class="muted">Папка не выбрана</span>
       </div>
@@ -55,9 +69,6 @@
         <button type="button" class="btn ghost" id="btnTheme" title="Тема" aria-label="Тема">☾</button>
         <button class="btn ghost" id="btnRefresh" title="Пересканировать клипы и обложки">Обновить клипы</button>
         <button class="btn ghost" id="btnQuality" title="Проверить качество библиотеки">Качество</button>
-        <button class="btn ghost" id="btnStats" type="button">Статистика</button>
-        <button class="btn ghost" id="btnWeekly" type="button">Подборка недели</button>
-        <button class="btn ghost" id="btnWave" type="button" aria-pressed="false">Моя волна</button>
         <div class="status-pill" id="ollamaPill" title="Состояние Ollama">
           <span class="dot"></span>
           <span class="lbl">Ollama…</span>
@@ -262,16 +273,22 @@
       <audio id="audio" preload="metadata" crossorigin="anonymous"></audio>
 
       <div class="player-left">
-        <div class="now-title-row">
-          <div class="now-title" id="nowTitle">—</div>
-          <button class="icon-btn sm favorite-btn" id="btnFavorite" type="button" title="В избранное" aria-label="Добавить в избранное" aria-pressed="false" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-          </button>
-          <button class="icon-btn sm dislike-btn" id="btnDislike" type="button" title="Не рекомендовать" aria-label="Не рекомендовать этот трек" disabled>⊘</button>
+        <div class="player-track">
+          <img class="player-cover" id="playerCover" alt="" />
+          <div class="player-track-info">
+            <div class="now-title-row">
+              <div class="now-title" id="nowTitle">—</div>
+              <button class="icon-btn sm favorite-btn" id="btnFavorite" type="button" title="В избранное" aria-label="Добавить в избранное" aria-pressed="false" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+              </button>
+              <button class="icon-btn sm dislike-btn" id="btnDislike" type="button" title="Не рекомендовать" aria-label="Не рекомендовать этот трек" disabled>⊘</button>
+            </div>
+            <div class="now-artist" id="nowArtist">Выберите трек</div>
+            <div class="now-album muted" id="nowAlbum"></div>
+          </div>
         </div>
-        <div class="now-artist" id="nowArtist">Выберите трек</div>
-        <div class="now-album muted" id="nowAlbum"></div>
         <div class="wave-reason" id="waveReason" aria-live="polite"></div>
+        <button class="btn ghost player-wave" id="btnPlayerWave" type="button">Моя волна</button>
       </div>
 
       <div class="player-center">
@@ -362,6 +379,6 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/static/vendor/anime.js"></script>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>
