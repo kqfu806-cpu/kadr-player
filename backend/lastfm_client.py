@@ -133,6 +133,19 @@ class LastFmClient:
             raise LastFmApiError("Last.fm returned no artist information")
         return info
 
+    async def get_track_info(self, artist: str, title: str) -> dict[str, Any]:
+        payload = await self._request(
+            "track.getInfo",
+            {
+                "artist": self._required(artist, "artist"),
+                "track": self._required(title, "track"),
+            },
+        )
+        track = payload.get("track")
+        if not isinstance(track, dict):
+            raise LastFmApiError("Last.fm returned no track information")
+        return track
+
     async def get_similar_tracks(
         self, artist: str, title: str, limit: int = 20
     ) -> list[dict[str, Any]]:

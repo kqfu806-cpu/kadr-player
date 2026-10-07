@@ -17,8 +17,8 @@ from .scanner import Track
 log = logging.getLogger("kadr.uncensored")
 _EDITED = re.compile(r"\b(?:clean|radio[\s-]+edit|edited|censored)\b", re.I)
 _NON_ORIGINAL = re.compile(
-    r"\b(?:live|cover|piano|instrumental|karaoke|remix|slowed|nightcore|acoustic)\b"
-    r"|sped[\s-]*up",
+    r"\b(?:live|cover|piano|instrumental|karaoke|remix(?:ed|es)?|bootleg|mashup|"
+    r"edit(?:ed|s)?|version(?:s)?|slowed|nightcore|acoustic|reverb)\b|sped[\s-]*up",
     re.I,
 )
 _TITLE_NOISE = re.compile(

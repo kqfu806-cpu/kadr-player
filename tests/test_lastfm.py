@@ -27,6 +27,9 @@ async def test_client_methods_parse_api_responses_and_cache(
         "artist.getTopTags": {"toptags": {"tag": [{"name": "rock"}]}},
         "artist.getInfo": {"artist": {"name": "Artist", "bio": {"summary": "Bio"}}},
         "track.getSimilar": {"similartracks": {"track": [{"name": "Related track"}]}},
+        "track.getInfo": {
+            "track": {"name": "Title", "artist": {"name": "Artist"}, "duration": "245000"}
+        },
     }
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -46,9 +49,10 @@ async def test_client_methods_parse_api_responses_and_cache(
         assert await lastfm.get_similar_tracks("Artist", "Title") == [
             {"name": "Related track"}
         ]
+        assert await lastfm.get_track_info("Artist", "Title") == responses["track.getInfo"]["track"]
 
-    assert len(methods) == 5
-    assert len(list(tmp_path.glob("*.json"))) == 5
+    assert len(methods) == 6
+    assert len(list(tmp_path.glob("*.json"))) == 6
 
 
 @pytest.mark.asyncio

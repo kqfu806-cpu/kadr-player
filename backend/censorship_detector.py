@@ -1,8 +1,7 @@
-"""Identify local tracks that may be edited or encoded at low quality."""
+"""Identify low-quality local tracks using Last.fm recording durations."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -10,26 +9,31 @@ import time
 from pathlib import Path
 from typing import Any
 
-import httpx
-
-from .config import ROOT, USER_AGENT
+from .config import ROOT
+from .lastfm_client import LastFmClient, LastFmError
 from .scanner import Track
 
 log = logging.getLogger("kadr.uncensored")
 SUSPECTS_PATH = ROOT / ".tools" / "suspect_tracks.json"
-DURATION_CACHE_PATH = ROOT / ".tools" / "musicbrainz_durations.json"
-MUSICBRAINZ_RECORDING = "https://musicbrainz.org/ws/2/recording/"
-_KEYWORD = re.compile(r"\b(?:clean|radio[\s-]+edit|edited|censored|version)\b", re.I)
-_mb_lock = asyncio.Lock()
-_mb_last_request = 0.0
+DURATION_CACHE_PATH = ROOT / ".tools" / "lastfm_track_durations.json"
+DURATION_CACHE_TTL_SECONDS = 24 * 60 * 60
+_BLACKLIST = re.compile(
+    r"\b(?:remix(?:ed|es)?|bootleg|mashup|edit(?:ed|s)?|version(?:s)?|"
+    r"instrumental|acoustic|live|cover|slowed|reverb)\b|sped[\s-]*up",
+    re.IGNORECASE,
+)
+
+
+def _is_blacklisted(track: Track) -> bool:
+    return bool(_BLACKLIST.search(track.title))
 
 
 def classify_track(track: Track, canonical_duration: int | None) -> dict[str, Any] | None:
-    """Return a JSON-ready suspect row, or None when no rule matches."""
+    """Return a suspect row only when Last.fm has canonical track data."""
+    if _is_blacklisted(track) or not canonical_duration or canonical_duration <= 0:
+        return None
     reasons: list[str] = []
-    if _KEYWORD.search(f"{track.title} {track.album}"):
-        reasons.append("keyword")
-    if canonical_duration and track.duration and canonical_duration - track.duration > 10:
+    if track.duration and canonical_duration - track.duration > 10:
         reasons.append("short")
     if track.bitrate and track.bitrate < 128:
         reasons.append("lowbitrate")
@@ -50,14 +54,33 @@ def classify_track(track: Track, canonical_duration: int | None) -> dict[str, An
 
 
 def _load_duration_cache() -> dict[str, int]:
+    now = time.time()
     try:
         raw = json.loads(DURATION_CACHE_PATH.read_text(encoding="utf-8"))
-        return {str(key): int(value) for key, value in raw.items() if value}
     except FileNotFoundError:
         return {}
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        log.warning("Could not read MusicBrainz duration cache: %s", exc)
+        log.warning("Could not read Last.fm duration cache: %s", exc)
         return {}
+    if not isinstance(raw, dict):
+        log.warning("Ignoring malformed Last.fm duration cache")
+        return {}
+    cache: dict[str, int] = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        checked_at = value.get("checked_at")
+        duration = value.get("duration")
+        if (
+            not isinstance(checked_at, (int, float))
+            or now - checked_at >= DURATION_CACHE_TTL_SECONDS
+        ):
+            continue
+        try:
+            cache[str(key)] = max(0, int(duration or 0))
+        except (TypeError, ValueError):
+            continue
+    return cache
 
 
 def _save_json(path: Path, data: Any) -> None:
@@ -72,105 +95,37 @@ def _duration_key(artist: str, title: str) -> str:
 
 
 def _canonical_title(title: str) -> str:
-    cleaned = _KEYWORD.sub(" ", title)
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.strip(" -_()[]")
-
-
-def _normalized(value: str) -> str:
-    return re.sub(r"\W+", " ", value.casefold()).strip()
+    return re.sub(r"\s+", " ", title).strip()
 
 
 async def _lookup_duration_batch(
-    client: httpx.AsyncClient, pairs: list[tuple[str, str]]
+    lastfm: LastFmClient, pairs: list[tuple[str, str]]
 ) -> dict[str, int]:
-    """Look up exact artist/title pairs without lossy OR-query result truncation."""
-    global _mb_last_request
-    valid_pairs = [(artist, title) for artist, title in pairs if artist.strip() and title.strip()]
-    if not valid_pairs:
-        return {}
-
-    def escape(value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"')
-
+    """Fetch durations from Last.fm; zero denotes an unavailable recording."""
     matches: dict[str, int] = {}
-    for artist, title in valid_pairs:
-        query = f'artist:"{escape(artist)}" AND recording:"{escape(title)}"'
-        recordings = None
-        for attempt in range(3):
-            async with _mb_lock:
-                delay = 1.05 - (time.monotonic() - _mb_last_request)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                _mb_last_request = time.monotonic()
-                try:
-                    response = await client.get(
-                        MUSICBRAINZ_RECORDING,
-                        params={"query": query, "fmt": "json", "limit": 5},
-                        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-                        timeout=12,
-                    )
-                    response.raise_for_status()
-                    recordings = response.json().get("recordings") or []
-                except httpx.HTTPStatusError as exc:
-                    if exc.response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
-                        log.warning(
-                            "MusicBrainz returned %s for %s - %s; retrying",
-                            exc.response.status_code,
-                            artist,
-                            title,
-                        )
-                        recordings = None
-                    else:
-                        log.warning(
-                            "MusicBrainz duration lookup failed for %s - %s: %s",
-                            artist,
-                            title,
-                            exc,
-                        )
-                        break
-                except (httpx.HTTPError, ValueError) as exc:
-                    log.warning(
-                        "MusicBrainz duration lookup failed for %s - %s: %s",
-                        artist,
-                        title,
-                        exc,
-                    )
-                    break
-            if recordings is not None:
-                break
-            await asyncio.sleep(2**attempt)
-
-        if not recordings:
-            continue
-        artist_norm = _normalized(artist)
-        title_norm = _normalized(title)
-        for recording in recordings:
-            name = _normalized(str(recording.get("title") or ""))
-            credit = " ".join(
-                str(item.get("name") or "")
-                for item in recording.get("artist-credit") or []
-                if isinstance(item, dict)
+    for artist, title in pairs:
+        key = _duration_key(artist, title)
+        try:
+            info = await lastfm.get_track_info(artist, title)
+            duration_ms = int(info.get("duration") or 0)
+            matches[key] = round(duration_ms / 1000) if duration_ms > 0 else 0
+        except (LastFmError, TypeError, ValueError) as exc:
+            log.info(
+                "Last.fm has no usable duration for %s - %s: %s",
+                artist,
+                title,
+                type(exc).__name__,
             )
-            duration_ms = recording.get("length")
-            if (
-                name == title_norm
-                and artist_norm
-                and artist_norm in _normalized(credit)
-                and isinstance(duration_ms, int)
-                and duration_ms > 0
-            ):
-                matches[_duration_key(artist, title)] = round(duration_ms / 1000)
-                break
+            matches[key] = 0
     return matches
 
 
 async def detect_suspects(
     tracks: list[Track],
-    client: httpx.AsyncClient,
+    lastfm: LastFmClient,
     progress: Any = None,
 ) -> list[dict[str, Any]]:
-    """Check tracks using cached durations and rate-limited batches of MusicBrainz queries."""
+    """Check eligible tracks with cached Last.fm data; ignore unmatched recordings."""
     total = len(tracks)
     cache = _load_duration_cache()
     pairs: list[tuple[str, str]] = []
@@ -178,7 +133,13 @@ async def detect_suspects(
     for track in tracks:
         title = _canonical_title(track.title)
         key = _duration_key(track.artist, title)
-        if key not in cache and key not in seen and track.artist.strip() and title.strip():
+        if (
+            not _is_blacklisted(track)
+            and key not in cache
+            and key not in seen
+            and track.artist.strip()
+            and title
+        ):
             pairs.append((track.artist, title))
             seen.add(key)
 
@@ -191,7 +152,7 @@ async def detect_suspects(
     resolved_keys.update(
         _duration_key(track.artist, _canonical_title(track.title))
         for track in tracks
-        if not track.artist.strip() or not _canonical_title(track.title).strip()
+        if _is_blacklisted(track) or not track.artist.strip() or not _canonical_title(track.title)
     )
 
     def report_progress() -> None:
@@ -201,20 +162,26 @@ async def detect_suspects(
         current_suspects = sum(
             1
             for track in tracks
-            if _duration_key(track.artist, _canonical_title(track.title)) in resolved_keys
-            and classify_track(
-                track,
-                cache.get(_duration_key(track.artist, _canonical_title(track.title))),
-            )
+            if (duration := cache.get(
+                _duration_key(track.artist, _canonical_title(track.title))
+            ))
+            and classify_track(track, duration)
         )
         progress(min(checked, total), total, current_suspects)
 
     report_progress()
     for offset in range(0, len(pairs), 10):
         batch = pairs[offset:offset + 10]
-        cache.update(await _lookup_duration_batch(client, batch))
+        cache.update(await _lookup_duration_batch(lastfm, batch))
         resolved_keys.update(_duration_key(artist, title) for artist, title in batch)
-        _save_json(DURATION_CACHE_PATH, cache)
+        now = time.time()
+        _save_json(
+            DURATION_CACHE_PATH,
+            {
+                key: {"duration": duration, "checked_at": now}
+                for key, duration in cache.items()
+            },
+        )
         report_progress()
 
     found: list[dict[str, Any]] = []

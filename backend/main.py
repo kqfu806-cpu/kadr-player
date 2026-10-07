@@ -887,7 +887,7 @@ def _uncensored_scan_snapshot() -> dict[str, Any]:
 
 @app.get("/api/uncensored/scan")
 async def uncensored_scan() -> dict[str, Any]:
-    """Start a rate-limited MusicBrainz scan, or return its current result."""
+    """Start a Last.fm-backed scan, or return its current result."""
     global uncensored_scan_task
     if not library:
         raise HTTPException(400, "Сначала выберите папку с музыкой")
@@ -912,7 +912,7 @@ async def uncensored_scan() -> dict[str, Any]:
             )
 
         try:
-            items = await detect_suspects(tracks, _client(), progress)
+            items = await detect_suspects(tracks, lastfm_client, progress)
             counts: dict[str, int] = {}
             for item in items:
                 for reason in item.get("reasons", [item["reason"]]):

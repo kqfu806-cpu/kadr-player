@@ -55,12 +55,26 @@ def make_track(
     )
 
 
-def test_detector_marks_clean_keyword() -> None:
-    suspect = classify_track(make_track(title="Track (clean)"), 245)
-
-    assert suspect is not None
-    assert suspect["reason"] == "keyword"
-    assert "keyword" in suspect["reasons"]
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "remix",
+        "remixed",
+        "bootleg",
+        "mashup",
+        "edit",
+        "version",
+        "instrumental",
+        "acoustic",
+        "live",
+        "cover",
+        "sped up",
+        "slowed",
+        "reverb",
+    ],
+)
+def test_detector_ignores_alternate_versions(marker: str) -> None:
+    assert classify_track(make_track(title=f"Track ({marker})", bitrate=96), 245) is None
 
 
 def test_detector_marks_track_shorter_than_canonical_by_over_ten_seconds() -> None:
@@ -77,6 +91,10 @@ def test_detector_marks_low_bitrate() -> None:
 
     assert suspect is not None
     assert "lowbitrate" in suspect["reasons"]
+
+
+def test_detector_does_not_mark_tracks_without_lastfm_duration() -> None:
+    assert classify_track(make_track(bitrate=96), None) is None
 
 
 def test_candidate_requires_unedited_title_and_official_artist_channel() -> None:
@@ -111,99 +129,68 @@ def test_candidate_title_allows_a_longer_official_title() -> None:
     assert _rank(candidate, track, 168) is not None
 
 
+@pytest.mark.parametrize(
+    "marker",
+    ["remix", "bootleg", "mashup", "edit", "version", "instrumental", "acoustic", "live", "cover", "sped up", "slowed", "reverb"],
+)
+def test_candidate_rejects_alternate_versions(marker: str) -> None:
+    candidate = {
+        "title": f"Artist - Song ({marker})",
+        "channel": "Artist",
+        "duration": 245,
+        "webpage_url": "https://www.youtube.com/watch?v=abc",
+    }
+
+    assert _rank(candidate, make_track(title="Song"), 245) is None
+
+
 @pytest.mark.asyncio
-async def test_detector_batches_musicbrainz_lookups_and_reports_progress(
+async def test_detector_uses_lastfm_and_reports_progress(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    track = make_track(title="Track (clean)", duration=220, path=str(tmp_path / "a.mp3"))
+    track = make_track(title="Track", duration=220, path=str(tmp_path / "a.mp3"))
     monkeypatch.setattr(detector, "SUSPECTS_PATH", tmp_path / "suspects.json")
     monkeypatch.setattr(detector, "DURATION_CACHE_PATH", tmp_path / "durations.json")
-    monkeypatch.setattr(detector, "_mb_last_request", 0.0)
 
-    class Response:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict[str, Any]:
-            return {
-                "recordings": [
-                    {
-                        "title": "Track",
-                        "length": 245000,
-                        "artist-credit": [{"name": "Artist"}],
-                    }
-                ]
-            }
-
-    class Client:
+    class LastFm:
         def __init__(self) -> None:
-            self.calls: list[dict[str, Any]] = []
+            self.calls: list[tuple[str, str]] = []
 
-        async def get(self, url: str, **kwargs: Any) -> Response:
-            self.calls.append({"url": url, **kwargs})
-            return Response()
+        async def get_track_info(self, artist: str, title: str) -> dict[str, Any]:
+            self.calls.append((artist, title))
+            return {"duration": "245000"}
 
     progress: list[tuple[int, int, int]] = []
-    client = Client()
+    client = LastFm()
     results = await detector.detect_suspects(
         [track], client, lambda done, total, suspects: progress.append((done, total, suspects))
     )
 
-    assert len(client.calls) == 1
-    assert "recording:" in client.calls[0]["params"]["query"]
-    assert results[0]["reason"] == "keyword"
-    assert results[0]["reasons"] == ["keyword", "short"]
+    assert client.calls == [("Artist", "Track")]
+    assert results[0]["reason"] == "short"
+    assert results[0]["reasons"] == ["short"]
     assert results[0]["canonical_duration"] == 245
     assert progress[-1] == (1, 1, 1)
 
 
 @pytest.mark.asyncio
-async def test_duration_batch_uses_exact_queries_for_every_track(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_detector_leaves_track_unmarked_when_lastfm_has_no_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(detector, "_mb_last_request", 0.0)
+    from backend.lastfm_client import LastFmApiError
 
-    async def no_wait(_delay: float) -> None:
-        return None
+    track = make_track(title="Unknown Song", bitrate=96, path=str(tmp_path / "unknown.mp3"))
+    monkeypatch.setattr(detector, "SUSPECTS_PATH", tmp_path / "suspects.json")
+    monkeypatch.setattr(detector, "DURATION_CACHE_PATH", tmp_path / "durations.json")
 
-    monkeypatch.setattr(detector.asyncio, "sleep", no_wait)
+    class LastFm:
+        async def get_track_info(self, *_args: Any) -> dict[str, Any]:
+            raise LastFmApiError("not found")
 
-    class Response:
-        def __init__(self, title: str) -> None:
-            self.title = title
+    results = await detector.detect_suspects([track], LastFm())  # type: ignore[arg-type]
 
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict[str, Any]:
-            return {
-                "recordings": [
-                    {
-                        "title": self.title,
-                        "length": 180000,
-                        "artist-credit": [{"name": "Artist"}],
-                    }
-                ]
-            }
-
-    class Client:
-        def __init__(self) -> None:
-            self.queries: list[str] = []
-
-        async def get(self, _url: str, **kwargs: Any) -> Response:
-            query = kwargs["params"]["query"]
-            self.queries.append(query)
-            title = "Song A" if 'recording:"Song A"' in query else "Song B"
-            return Response(title)
-
-    client = Client()
-    matches = await detector._lookup_duration_batch(
-        client, [("Artist", "Song A"), ("Artist", "Song B")]
-    )
-
-    assert matches == {"artist|song a": 180, "artist|song b": 180}
-    assert len(client.queries) == 2
-    assert all(" OR " not in query for query in client.queries)
+    assert results == []
+    assert detector._load_duration_cache() == {"artist|unknown song": 0}
 
 
 def test_replacer_cleans_edit_markers_from_tags() -> None:
@@ -234,6 +221,13 @@ def test_replacer_accepts_youtube_hosts(url: str) -> None:
 def test_replacer_rejects_non_youtube_hosts(url: str) -> None:
     with pytest.raises(ValueError):
         validate_youtube_url(url)
+
+
+def test_mass_replacement_requires_explicit_confirmation(client: TestClient) -> None:
+    response = client.post("/api/uncensored/replace_all", json={})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Требуется явное подтверждение массовой замены"
 
 
 def test_uncensored_api_endpoints_return_success(

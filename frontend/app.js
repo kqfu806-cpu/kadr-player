@@ -1697,7 +1697,6 @@
   function qualityReason(reason) {
     return {
       short: "короче оригинала",
-      keyword: "маркер версии",
       lowbitrate: "низкий битрейт",
     }[reason] || reason;
   }
@@ -1754,7 +1753,7 @@
       qualitySuspectCount = status.suspects || 0;
       const percent = status.total ? Math.round(status.processed * 100 / status.total) : 0;
       if (status.status === "running") {
-        $("qualitySummary").textContent = `Проверено ${status.processed} из ${status.total}; подозрительных: ${status.suspects}. MusicBrainz ограничивает частоту запросов.`;
+        $("qualitySummary").textContent = `Проверено ${status.processed} из ${status.total}; подозрительных: ${status.suspects}. Данные берутся из Last.fm.`;
         showQualityProgress(percent, `${status.processed}/${status.total}`, false);
         qualityPollTimer = setTimeout(pollQualityScan, 1200);
       } else if (status.status === "complete") {
@@ -1789,7 +1788,7 @@
       } else if (status.status === "complete") {
         await pollQualityScan();
       } else {
-        $("qualitySummary").textContent = "Сканирование проверит теги, длительность и битрейт.";
+        $("qualitySummary").textContent = "Сканирование проверит длительность и битрейт по данным Last.fm.";
         showQualityProgress(0, "", false);
       }
     } catch (err) {
