@@ -8,6 +8,7 @@ import math
 import random
 import sqlite3
 import struct
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,17 @@ log = logging.getLogger("kadr.wave")
 SIGNAL_WEIGHTS = {"skip": -1.0, "complete": 1.0, "like": 3.0, "dislike": -5.0}
 EMBEDDING_BATCH_SIZE = 24
 MAX_TRACKS_PER_SIMILAR_SIGNAL = 3
+WAVE_MODES = {"new", "library", "forgotten", "favorite", "mix"}
+WAVE_MOODS = {"energetic", "calm", "sad", "night"}
+WAVE_LANGUAGES = {"ru", "foreign", "instrumental"}
+_MOOD_WORDS = {
+    "energetic": ("energetic", "energy", "dance", "танцевальный", "энергичный", "electronic", "rock"),
+    "calm": ("calm", "relax", "ambient", "спокойный", "расслабленный", "chill", "acoustic"),
+    "sad": ("sad", "melancholy", "sadcore", "грустный", "печальный", "драма", "slowcore"),
+    "night": ("night", "dark", "dream", "ночной", "мрачный", "dream pop", "ambient"),
+}
+_INSTRUMENTAL_WORDS = ("instrumental", "karaoke", "без вокала", "инструментал")
+_REMOTE_PREVIEW_HOSTS = ("deezer.com", "dzcdn.net")
 _mood_lock = asyncio.Lock()
 _mood_embedding_lock = asyncio.Lock()
 _last_mood_request = 0.0
@@ -307,11 +319,22 @@ async def recommend(
     ollama: OllamaClient | None = None,
     lastfm: LastFmClient | None = None,
     db_path: Path | None = None,
+    mode: str = "new",
+    mood_filter: str | None = None,
+    language_filter: str | None = None,
+    balance: int = 50,
 ) -> dict[str, Any]:
     count = max(1, min(int(count), 50))
+    if mode not in WAVE_MODES:
+        raise ValueError(f"Unsupported wave mode: {mode}")
+    if mood_filter is not None and mood_filter not in WAVE_MOODS:
+        raise ValueError(f"Unsupported wave mood: {mood_filter}")
+    if language_filter is not None and language_filter not in WAVE_LANGUAGES:
+        raise ValueError(f"Unsupported wave language: {language_filter}")
+    balance = max(0, min(100, int(balance)))
     excluded = exclude_ids or set()
     available = [track for track in tracks if track.id not in excluded]
-    if not available:
+    if not available and mode not in {"new"}:
         return {"items": [], "mood": "", "period": _time_mood()[0], "embeddings_ready": True}
 
     play_map, signal_map = _listening_data(db_path)
@@ -417,37 +440,100 @@ async def recommend(
         )
         discovery.append((discovery_score, track, reason))
 
+    def matches_filters(track: Track) -> bool:
+        haystack = f"{track.artist} {track.title} {track.album}".casefold()
+        if language_filter == "ru" and not any("\u0400" <= char <= "\u04ff" for char in haystack):
+            return False
+        if language_filter == "foreign" and any("\u0400" <= char <= "\u04ff" for char in haystack):
+            return False
+        if language_filter == "instrumental" and not any(word in haystack for word in _INSTRUMENTAL_WORDS):
+            return False
+        if mood_filter and not any(word in haystack for word in _MOOD_WORDS[mood_filter]):
+            vector = vectors.get(track.id)
+            if vector and mood_vector and cosine_similarity(vector, mood_vector) >= 0.45:
+                return True
+            return mood_filter is None
+        return True
+
+    familiarity = [entry for entry in familiarity if matches_filters(entry[1])]
+    discovery = [entry for entry in discovery if matches_filters(entry[1])]
     familiarity.sort(key=lambda item: item[0], reverse=True)
     discovery.sort(key=lambda item: item[0], reverse=True)
-    familiar_count = round(count * 0.6)
+    familiar_count = round(count * (100 - balance) / 100)
     discovery_count = count - familiar_count
     chosen: list[tuple[Track, str]] = []
     seen: set[str] = set()
-    for _, track, reason in familiarity[:familiar_count]:
-        chosen.append((track, reason))
-        seen.add(track.id)
-
-    for score, track, reason in discovery:
-        if track.id in seen:
-            continue
-        if len(chosen) >= familiar_count + discovery_count:
-            break
-        chosen.append((track, reason))
-        seen.add(track.id)
-
-    for _, track, reason in familiarity:
-        if len(chosen) >= count:
-            break
-        if track.id not in seen:
+    forgotten = [
+        entry for entry in discovery
+        if entry[2] in {"редко слушал", "давно не включал"}
+    ]
+    if mode in {"library", "mix"}:
+        for _, track, reason in familiarity[:familiar_count]:
             chosen.append((track, reason))
             seen.add(track.id)
-
-    for _, track, reason in discovery:
-        if len(chosen) >= count:
-            break
-        if track.id not in seen:
+        for _, track, reason in discovery:
+            if track.id in seen or len(chosen) >= familiar_count + discovery_count:
+                continue
             chosen.append((track, reason))
             seen.add(track.id)
+        for _, track, reason in familiarity + discovery:
+            if len(chosen) >= count:
+                break
+            if track.id not in seen:
+                chosen.append((track, reason))
+                seen.add(track.id)
+    elif mode == "forgotten":
+        chosen = [(track, reason) for _, track, reason in forgotten[:count]]
+    elif mode == "favorite":
+        chosen = [(track, reason) for _, track, reason in familiarity[:count]]
+
+    remote: list[dict[str, Any]] = []
+    if mode in {"new", "mix"} and lastfm:
+        remote = await _new_tracks(
+            tracks,
+            play_map,
+            lastfm,
+            client,
+            count if mode == "new" else round(count * 0.4),
+            mood_filter,
+            language_filter,
+            excluded,
+        )
+    if mode == "new":
+        return {
+            "items": remote,
+            "mode": mode,
+            "mood": mood,
+            "period": period,
+            "expected_mood": expected_mood,
+            "embeddings_ready": len(vectors) >= len(tracks),
+            "embedding_count": len(vectors),
+            "warning": None if remote else "Новые рекомендации Last.fm/Deezer сейчас недоступны",
+        }
+    if mode == "mix":
+        known_count = count - len(remote)
+        forgotten_count = min(round(count * 0.2), known_count)
+        forgotten_ids = {track.id for _, track, _ in forgotten[:forgotten_count]}
+        forgotten_chosen = [
+            (track, reason) for _, track, reason in forgotten
+            if track.id in forgotten_ids
+        ]
+        known = [entry for entry in chosen if entry[0].id not in forgotten_ids]
+        chosen = known[:max(0, known_count - len(forgotten_chosen))] + forgotten_chosen
+        items = remote + [
+            {**track.to_dict(), "reason": reason}
+            for track, reason in chosen[:known_count]
+        ]
+        return {
+            "items": items[:count],
+            "mode": mode,
+            "mood": mood,
+            "period": period,
+            "expected_mood": expected_mood,
+            "embeddings_ready": len(vectors) >= len(tracks),
+            "embedding_count": len(vectors),
+            "warning": None if remote else "Новые рекомендации Last.fm/Deezer сейчас недоступны",
+        }
 
     return {
         "items": [
@@ -459,7 +545,124 @@ async def recommend(
         "expected_mood": expected_mood,
         "embeddings_ready": len(vectors) >= len(tracks),
         "embedding_count": len(vectors),
+        "mode": mode,
     }
+
+
+async def _new_tracks(
+    tracks: list[Track],
+    play_map: dict[str, dict[str, Any]],
+    lastfm: LastFmClient,
+    client: httpx.AsyncClient | None,
+    count: int,
+    mood_filter: str | None,
+    language_filter: str | None,
+    excluded: set[str],
+) -> list[dict[str, Any]]:
+    if count <= 0:
+        return []
+    tracks_by_id = {track.id: track for track in tracks}
+    artists: dict[str, int] = {}
+    for track_id, data in play_map.items():
+        track = tracks_by_id.get(track_id)
+        if track:
+            artists[track.artist] = artists.get(track.artist, 0) + data["play_count"]
+    seeds = [
+        name for name, _ in sorted(artists.items(), key=lambda row: row[1], reverse=True)[:3]
+    ]
+    if not seeds:
+        seeds = list(dict.fromkeys(track.artist for track in tracks if track.artist))[:3]
+    known = {
+        (track.artist.casefold().strip(), track.title.casefold().strip())
+        for track in tracks
+    }
+    candidates: dict[tuple[str, str], dict[str, Any]] = {}
+    for seed in seeds:
+        try:
+            similar = await lastfm.get_similar_artists(seed, 8)
+        except LastFmError as exc:
+            log.info("Last.fm similar artists unavailable for %s: %s", seed, exc)
+            continue
+        for artist in similar[:4]:
+            name = str(artist.get("name") or "").strip()
+            if not name or name.casefold() in {item.casefold() for item in seeds}:
+                continue
+            try:
+                top_tracks = await lastfm.get_artist_top_tracks(name, min(10, count * 2))
+            except LastFmError as exc:
+                log.info("Last.fm top tracks unavailable for %s: %s", name, exc)
+                continue
+            for item in top_tracks:
+                title = str(item.get("name") or "").strip()
+                key = (name.casefold(), title.casefold())
+                if not title or key in known:
+                    continue
+                candidate = {
+                    "id": "remote:" + hashlib.sha256(f"{name}\0{title}".encode()).hexdigest()[:24],
+                    "artist": name,
+                    "title": title,
+                    "reason": f"новый исполнитель: {seed}",
+                    "external": True,
+                    "url": str(item.get("url") or ""),
+                    "preview": "",
+                    "cover": "",
+                }
+                if candidate["id"] not in excluded and _matches_remote_filters(
+                    candidate, mood_filter, language_filter
+                ):
+                    candidates[key] = candidate
+    if client and candidates:
+        semaphore = asyncio.Semaphore(4)
+
+        async def deezer_match(key: tuple[str, str], candidate: dict[str, Any]) -> None:
+            async with semaphore:
+                try:
+                    response = await client.get(
+                        "https://api.deezer.com/search",
+                        params={"q": f'artist:"{candidate["artist"]}" track:"{candidate["title"]}"', "limit": 5},
+                        timeout=6.0,
+                    )
+                    response.raise_for_status()
+                    rows = response.json().get("data") or []
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    log.info("Deezer wave lookup failed for %s: %s", candidate["title"], type(exc).__name__)
+                    return
+                for row in rows:
+                    artist = row.get("artist") or {}
+                    if str(artist.get("name") or "").casefold() != key[0]:
+                        continue
+                    preview = str(row.get("preview") or "")
+                    host = (httpx.URL(preview).host or "").casefold() if preview else ""
+                    if preview and httpx.URL(preview).scheme == "https" and any(
+                        host == domain or host.endswith("." + domain)
+                        for domain in _REMOTE_PREVIEW_HOSTS
+                    ):
+                        candidate["preview"] = preview
+                    album = row.get("album") or {}
+                    candidate["cover"] = str(album.get("cover_medium") or "")
+                    candidate["deezer_url"] = str(row.get("link") or "")
+                    break
+
+        await asyncio.gather(
+            *(deezer_match(key, item) for key, item in candidates.items())
+        )
+    return [item for item in candidates.values() if item["preview"]][:count]
+
+
+def _matches_remote_filters(
+    item: dict[str, Any], mood_filter: str | None, language_filter: str | None
+) -> bool:
+    value = f"{item['artist']} {item['title']}".casefold()
+    has_cyrillic = any("\u0400" <= char <= "\u04ff" for char in value)
+    if language_filter == "ru" and not has_cyrillic:
+        return False
+    if language_filter == "foreign" and has_cyrillic:
+        return False
+    if language_filter == "instrumental":
+        return any(word in value for word in _INSTRUMENTAL_WORDS)
+    if mood_filter:
+        return any(word in value for word in _MOOD_WORDS[mood_filter])
+    return True
 
 
 def record_signal(

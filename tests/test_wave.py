@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -147,13 +148,91 @@ async def test_recommendations_mix_familiar_and_discovery_tracks(
             play,
         )
 
-    result = await wave.recommend(tracks, count=10, db_path=db_path)
+    result = await wave.recommend(tracks, count=10, db_path=db_path, mode="library")
 
     assert len(result["items"]) == 10
     assert len({item["id"] for item in result["items"]}) == 10
     assert any(item["id"] == "track-0" for item in result["items"])
     assert sum(1 for item in result["items"] if item["reason"] in {"редко слушал", "новый исполнитель"}) >= 4
     assert result["period"] in {"утро", "день", "вечер", "ночь"}
+
+
+@pytest.mark.asyncio
+async def test_new_wave_returns_only_non_library_tracks_with_safe_preview(
+    tmp_path: Path,
+) -> None:
+    local_tracks = [make_track("local", artist="Library Artist", title="Known Song")]
+
+    class LastFm:
+        async def get_similar_artists(self, _artist: str, _limit: int) -> list[dict[str, str]]:
+            return [{"name": "Similar Artist"}]
+
+        async def get_artist_top_tracks(
+            self, _artist: str, _limit: int
+        ) -> list[dict[str, str]]:
+            return [{"name": "New Song", "url": "https://www.last.fm/music/Similar"}]
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "data": [
+                    {
+                        "artist": {"name": "Similar Artist"},
+                        "preview": "https://cdns-preview-1.dzcdn.net/preview.mp3",
+                        "album": {"cover_medium": "https://cdn.example.test/cover.jpg"},
+                        "link": "https://www.deezer.com/track/1",
+                    }
+                ]
+            }
+
+    class Deezer:
+        async def get(self, *_args, **_kwargs) -> Response:
+            return Response()
+
+    result = await wave.recommend(
+        local_tracks,
+        count=5,
+        lastfm=LastFm(),  # type: ignore[arg-type]
+        client=Deezer(),  # type: ignore[arg-type]
+        db_path=tmp_path / "wave.sqlite3",
+        mode="new",
+    )
+
+    assert len(result["items"]) == 1
+    assert result["items"][0]["external"] is True
+    assert result["items"][0]["title"] == "New Song"
+    assert result["items"][0]["preview"].endswith("preview.mp3")
+    assert result["items"][0]["id"] != "local"
+
+
+@pytest.mark.asyncio
+async def test_favorite_and_forgotten_modes_filter_library(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "wave.sqlite3"
+    tracks = [make_track(f"track-{index}") for index in range(3)]
+    now = datetime.now(timezone.utc).isoformat()
+    with wave._connect(db_path) as connection:
+        connection.executemany(
+            """
+            INSERT INTO plays (session_id, track_id, timestamp, duration, artist, title)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (f"played-{index}", "track-0", now, 120, "Artist", "Song track-0")
+                for index in range(3)
+            ],
+        )
+    wave.record_signal("track-0", "like", db_path)
+
+    favorite = await wave.recommend(tracks, mode="favorite", db_path=db_path)
+    forgotten = await wave.recommend(tracks, mode="forgotten", db_path=db_path)
+
+    assert [item["id"] for item in favorite["items"]] == ["track-0"]
+    assert {item["id"] for item in forgotten["items"]} == {"track-1", "track-2"}
 
 
 @pytest.fixture

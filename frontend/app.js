@@ -16,6 +16,30 @@
   const activeSectionKey = "kurymdyk-active-section";
   const lastArtistKey = "kurymdyk-last-artist";
   const weeklySavedKey = "kurymdyk-weekly-saved";
+  const waveModeKey = "kurymdyk-wave-mode";
+  const waveSettingsKey = "kurymdyk-wave-settings";
+  const waveModes = ["new", "library", "forgotten", "favorite", "mix"];
+  function readWaveSettings() {
+    try {
+      const value = JSON.parse(localStorage.getItem(waveSettingsKey) || "{}");
+      return {
+        mood: ["energetic", "calm", "sad", "night"].includes(value.mood) ? value.mood : "",
+        language: ["ru", "foreign", "instrumental"].includes(value.language) ? value.language : "",
+        balance: Math.max(0, Math.min(100, Number(value.balance) || 40)),
+      };
+    } catch (_) {
+      return { mood: "", language: "", balance: 40 };
+    }
+  }
+  function readWaveMode() {
+    try {
+      const mode = localStorage.getItem(waveModeKey);
+      return waveModes.includes(mode) ? mode : "new";
+    } catch (_) {
+      return "new";
+    }
+  }
+  const waveSettings = readWaveSettings();
   const weeklySaved = (() => {
     try {
       const value = JSON.parse(localStorage.getItem(weeklySavedKey) || "[]");
@@ -71,6 +95,7 @@
     resolving: false,
     order: [],
     lyrics: null,
+    externalTrack: null,
     lyricIndex: -1,
     lyricFollow: true,
     lyricUserScroll: false,
@@ -81,6 +106,10 @@
     playGen: 0,
     playSession: null,
     waveMode: false,
+    waveModeKey: readWaveMode(),
+    waveMood: waveSettings.mood,
+    waveLanguage: waveSettings.language,
+    waveBalance: waveSettings.balance,
     waveQueue: [],
     waveSeen: new Set(),
     waveReason: "",
@@ -259,6 +288,7 @@
   function setActiveSection(section) {
     state.activeSection = section;
     try { localStorage.setItem(activeSectionKey, section); } catch (_) {}
+    $("waveControls")?.classList.toggle("hidden", section !== "wave");
     document.querySelectorAll("#primaryNav [data-section]").forEach((button) => {
       const active = button.dataset.section === section ||
         (section === "profile" && button.dataset.section === "artists");
@@ -589,6 +619,7 @@
       finishPlaySession();
     }
     const gen = ++state.playGen;
+    state.externalTrack = null;
     state.index = i;
     const t = state.tracks[i];
     renderPlaylist();
@@ -760,7 +791,7 @@
   }
 
   function currentTrack() {
-    return state.tracks[state.index] || null;
+    return state.externalTrack || state.tracks[state.index] || null;
   }
 
   function newSessionId() {
@@ -770,7 +801,7 @@
 
   function ensurePlaySession() {
     const track = currentTrack();
-    if (!track || (state.playSession && state.playSession.trackId === track.id)) return;
+    if (!track || track.external || (state.playSession && state.playSession.trackId === track.id)) return;
     state.playSession = {
       trackId: track.id,
       sessionId: newSessionId(),
@@ -825,17 +856,18 @@
 
   function syncFavoriteControls() {
     const track = currentTrack();
-    const favorite = !!track && state.favorites.has(track.id);
+    const local = !!track && !track.external;
+    const favorite = local && state.favorites.has(track.id);
     const button = $("btnFavorite");
     if (button) {
-      button.disabled = !track;
+      button.disabled = !local;
       button.classList.toggle("on", favorite);
       button.setAttribute("aria-pressed", String(favorite));
       button.title = favorite ? "Убрать из избранного" : "В избранное";
       button.setAttribute("aria-label", button.title);
     }
     const dislike = $("btnDislike");
-    if (dislike) dislike.disabled = !track;
+    if (dislike) dislike.disabled = !local;
     const filter = $("btnFavoritesFilter");
     if (filter) {
       filter.classList.toggle("on", state.favoritesOnly);
@@ -847,7 +879,7 @@
 
   function toggleCurrentFavorite() {
     const track = currentTrack();
-    if (!track) return;
+    if (!track || track.external) return;
     if (state.favorites.has(track.id)) state.favorites.delete(track.id);
     else state.favorites.add(track.id);
     if (state.favorites.has(track.id)) sendWaveSignal("like");
@@ -890,7 +922,16 @@
     const recent = [...state.waveSeen].slice(-30);
     const current = currentTrack();
     if (current && !recent.includes(current.id)) recent.push(current.id);
-    const query = new URLSearchParams({ count: "10", exclude: recent.join(",") });
+    const query = new URLSearchParams({
+      count: "10",
+      exclude: recent.join(","),
+      mode: state.waveModeKey,
+      mood: state.waveMood,
+      language: state.waveLanguage,
+      balance: String(state.waveBalance),
+    });
+    if (!state.waveMood) query.delete("mood");
+    if (!state.waveLanguage) query.delete("language");
     const response = await api(`/api/wave/queue?${query.toString()}`);
     state.waveQueue.push(...(response.items || []));
   }
@@ -912,6 +953,10 @@
         toast("Не удалось подобрать следующий трек для волны");
         return;
       }
+      if (item.external) {
+        playExternalWaveItem(item);
+        return;
+      }
       const index = state.tracks.findIndex((track) => track.id === item.id);
       if (index < 0) {
         toast("Рекомендованный трек больше не в библиотеке");
@@ -925,6 +970,75 @@
       toast(`Моя волна: ${error.message}`);
     } finally {
       state.waveLoading = false;
+    }
+  }
+
+  function playExternalWaveItem(item) {
+    const preview = String(item.preview || "");
+    let previewUrl;
+    try {
+      previewUrl = new URL(preview);
+    } catch (_) {
+      toast("У этой рекомендации нет безопасного предпрослушивания");
+      return;
+    }
+    const allowedHost = (previewUrl.hostname === "deezer.com" || previewUrl.hostname.endsWith(".deezer.com") ||
+      previewUrl.hostname === "dzcdn.net" || previewUrl.hostname.endsWith(".dzcdn.net"));
+    if (previewUrl.protocol !== "https:" || !allowedHost) {
+      toast("Ссылка предпрослушивания отклонена");
+      return;
+    }
+    if (state.playSession) {
+      samplePlaySession();
+      finishPlaySession();
+    }
+    state.playGen++;
+    state.externalTrack = { ...item, external: true };
+    state.index = -1;
+    state.mode = "audio";
+    state.media = null;
+    state.lyrics = null;
+    state.lyricIndex = -1;
+    $("lyricsPanel").classList.add("hidden");
+    $("lyricsScroll").innerHTML = "";
+    $("welcome").classList.add("hidden");
+    $("mediaLayer").classList.remove("hidden");
+    $("videoWrap").classList.add("hidden");
+    $("coverWrap").classList.remove("hidden");
+    $("nowTitle").textContent = item.title;
+    $("nowArtist").textContent = item.artist;
+    $("nowAlbum").textContent = "Предпрослушивание · Deezer";
+    $("waveReason").textContent = item.reason || "Новый трек по вашим вкусам";
+    $("nowReason").textContent = "30-секундный фрагмент";
+    document.title = `${item.artist} — ${item.title} · Курымдык`;
+    $("playerCover").src = item.cover
+      ? `/api/cover-proxy?url=${encodeURIComponent(item.cover)}`
+      : "";
+    if (item.cover) setCover(item.cover);
+    audio.src = previewUrl.href;
+    audio.play().then(() => setPlaying(true)).catch(() => {
+      setPlaying(false);
+      toast("Не удалось запустить предпрослушивание");
+    });
+    syncFavoriteControls();
+    updateNowPlaying();
+  }
+
+  function selectWaveMode(mode) {
+    if (!waveModes.includes(mode)) return;
+    state.waveModeKey = mode;
+    try { localStorage.setItem(waveModeKey, mode); } catch (_) {}
+    document.querySelectorAll("[data-wave-mode]").forEach((button) => {
+      const active = button.dataset.waveMode === mode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    state.waveQueue = [];
+    if (state.waveMode) {
+      if (state.externalTrack) audio.pause();
+      playWaveNext();
+    } else {
+      startWave();
     }
   }
 
@@ -947,7 +1061,7 @@
 
   function sendWaveSignal(signal) {
     const track = currentTrack();
-    if (!track) return;
+    if (!track || track.external) return;
     const duration = getPosition();
     if (signal === "skip" && duration >= 30) return;
     api("/api/wave/signal", {
@@ -1291,6 +1405,34 @@
   });
   $("btnPlayerWave")?.addEventListener("click", startWave);
   $("btnWaveHero")?.addEventListener("click", startWave);
+  document.querySelectorAll("[data-wave-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.waveMode === state.waveModeKey));
+    button.classList.toggle("is-active", button.dataset.waveMode === state.waveModeKey);
+    button.addEventListener("click", () => selectWaveMode(button.dataset.waveMode));
+  });
+  $("waveMood").value = state.waveMood;
+  $("waveLanguage").value = state.waveLanguage;
+  $("waveBalance").value = String(state.waveBalance);
+  $("waveBalanceValue").textContent = `${state.waveBalance}%`;
+  $("waveSettingsToggle")?.addEventListener("click", () => {
+    const panel = $("waveSettings");
+    const expanded = panel.classList.toggle("hidden") === false;
+    $("waveSettingsToggle").setAttribute("aria-expanded", String(expanded));
+  });
+  function saveWaveSettings() {
+    state.waveMood = $("waveMood").value;
+    state.waveLanguage = $("waveLanguage").value;
+    state.waveBalance = Number($("waveBalance").value);
+    $("waveBalanceValue").textContent = `${state.waveBalance}%`;
+    try {
+      localStorage.setItem(waveSettingsKey, JSON.stringify({
+        mood: state.waveMood, language: state.waveLanguage, balance: state.waveBalance,
+      }));
+    } catch (_) {}
+    state.waveQueue = [];
+  }
+  ["waveMood", "waveLanguage", "waveBalance"].forEach((id) =>
+    $(id)?.addEventListener("input", saveWaveSettings));
   $("btnFavoritesFilter").addEventListener("click", toggleFavoritesFilter);
   $("btnNext").addEventListener("click", () => next(false));
   $("btnPrev").addEventListener("click", prev);
@@ -2480,7 +2622,9 @@
     }
     if (bar) bar.classList.remove("hidden");
     if (title) title.textContent = t.artist + " — " + t.title;
-    const cover = coverLsGet(t.id);
+    const cover = t.external && t.cover
+      ? `/api/cover-proxy?url=${encodeURIComponent(t.cover)}`
+      : coverLsGet(t.id);
     const embedded = t.embedded_cover
       ? `/api/cover/${encodeURIComponent(String(t.embedded_cover).split(/[/\\]/).pop())}`
       : "";

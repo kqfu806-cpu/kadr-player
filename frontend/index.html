@@ -137,6 +137,39 @@
       <div class="side-handle" id="sideHandle" title="Ширина списка"></div>
 
       <main class="stage">
+        <section class="wave-controls hidden" id="waveControls" aria-label="Режимы Моей волны">
+          <div class="wave-modes" role="group" aria-label="Выберите режим волны">
+            <button class="wave-mode is-active" type="button" data-wave-mode="new">✨ Новое</button>
+            <button class="wave-mode" type="button" data-wave-mode="library">🎵 Из моей</button>
+            <button class="wave-mode" type="button" data-wave-mode="forgotten">🕰️ Забытое</button>
+            <button class="wave-mode" type="button" data-wave-mode="favorite">❤️ Любимое</button>
+            <button class="wave-mode" type="button" data-wave-mode="mix">🔀 Всё вместе</button>
+          </div>
+          <button class="btn ghost wave-settings-toggle" id="waveSettingsToggle" type="button" aria-expanded="false">⚙️ Настроить</button>
+          <div class="wave-settings hidden" id="waveSettings">
+            <label>Настроение
+              <select id="waveMood">
+                <option value="">Любое</option>
+                <option value="energetic">Энергичное</option>
+                <option value="calm">Спокойное</option>
+                <option value="sad">Грустное</option>
+                <option value="night">Ночное</option>
+              </select>
+            </label>
+            <label>Язык
+              <select id="waveLanguage">
+                <option value="">Любой</option>
+                <option value="ru">Русский</option>
+                <option value="foreign">Иностранный</option>
+                <option value="instrumental">Без вокала</option>
+              </select>
+            </label>
+            <label class="wave-balance">Знакомое — новое
+              <input id="waveBalance" type="range" min="0" max="100" value="40" />
+              <span id="waveBalanceValue">40%</span>
+            </label>
+          </div>
+        </section>
         <section class="viewport" id="viewport">
           <div class="welcome" id="welcome">
             <div class="welcome-mark">▶</div>

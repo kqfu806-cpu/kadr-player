@@ -651,6 +651,47 @@ html:not(.collapsed) .rail-open { display: none !important; }
 #btnWaveHero { margin-top: 0.35rem; }
 #btnWave.on { color: var(--text); border-color: var(--accent-2); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .wave-reason { min-height: 1rem; margin-top: 0.2rem; color: var(--muted); font-size: 0.68rem; }
+.wave-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.25rem 0.25rem 0.65rem;
+}
+.wave-modes { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.wave-mode {
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  color: var(--muted);
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+.wave-mode:hover, .wave-mode:focus-visible { color: var(--text); border-color: var(--accent); }
+.wave-mode.is-active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(110deg, var(--accent-1), var(--accent-2));
+  box-shadow: 0 0.35rem 1.1rem rgba(var(--glow), 0.24);
+}
+.wave-settings-toggle { padding: 0.42rem 0.75rem; }
+.wave-settings {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--stroke);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+.wave-settings label { display: grid; gap: 0.35rem; color: var(--muted); font-size: 0.78rem; }
+.wave-settings select { min-width: 9rem; }
+.wave-balance { grid-template-columns: minmax(9rem, 1fr) auto; min-width: min(19rem, 100%); }
+.wave-balance input { grid-column: 1; }
+.wave-balance span { grid-column: 2; grid-row: 2; color: var(--text); }
 
 .media-layer {
   position: absolute;

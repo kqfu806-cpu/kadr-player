@@ -674,11 +674,24 @@ async def _start_wave_embedding_warmup() -> None:
     wave_embedding_task = asyncio.create_task(worker())
 
 
-async def _wave_queue_result(count: int, exclude: str) -> dict[str, Any]:
+async def _wave_queue_result(
+    count: int,
+    exclude: str,
+    mode: str = "new",
+    mood: str | None = None,
+    language: str | None = None,
+    balance: int = 40,
+) -> dict[str, Any]:
     if not library:
         raise HTTPException(400, "Сначала выберите папку с музыкой")
+    if mode not in wave_engine.WAVE_MODES:
+        raise HTTPException(400, "Неизвестный режим волны")
+    if mood is not None and mood not in wave_engine.WAVE_MOODS:
+        raise HTTPException(400, "Неизвестный фильтр настроения")
+    if language is not None and language not in wave_engine.WAVE_LANGUAGES:
+        raise HTTPException(400, "Неизвестный фильтр языка")
     await _start_wave_embedding_warmup()
-    excluded = {track_id for track_id in exclude.split(",") if track_id in library}
+    excluded = {track_id for track_id in exclude.split(",") if track_id}
     result = await wave_engine.recommend(
         list(library.values()),
         count=count,
@@ -686,6 +699,10 @@ async def _wave_queue_result(count: int, exclude: str) -> dict[str, Any]:
         client=_client(),
         ollama=ollama,
         lastfm=lastfm_client,
+        mode=mode,
+        mood_filter=mood,
+        language_filter=language,
+        balance=balance,
     )
     result["embedding_status"] = dict(wave_embedding_state)
     return result
@@ -695,16 +712,25 @@ async def _wave_queue_result(count: int, exclude: str) -> dict[str, Any]:
 async def api_wave_queue(
     count: int = Query(default=10, ge=1, le=50),
     exclude: str = Query(default="", max_length=4000),
+    mode: str = Query(default="new"),
+    mood: str | None = Query(default=None),
+    language: str | None = Query(default=None),
+    balance: int = Query(default=40, ge=0, le=100),
 ) -> dict[str, Any]:
-    return await _wave_queue_result(count, exclude)
+    return await _wave_queue_result(count, exclude, mode, mood, language, balance)
 
 
 @app.get("/api/wave/next")
-async def api_wave_next() -> dict[str, Any]:
-    result = await _wave_queue_result(1, "")
+async def api_wave_next(
+    mode: str = Query(default="new"),
+    mood: str | None = Query(default=None),
+    language: str | None = Query(default=None),
+    balance: int = Query(default=40, ge=0, le=100),
+) -> dict[str, Any]:
+    result = await _wave_queue_result(1, "", mode, mood, language, balance)
     items = result.pop("items")
     if not items:
-        raise HTTPException(404, "В библиотеке нет доступных треков для волны")
+        raise HTTPException(404, result.get("warning") or "В библиотеке нет доступных треков для волны")
     result["track"] = items[0]
     return result
 
