@@ -37,7 +37,7 @@ def make_track(
     )
 
 
-def test_lyrics_cache_key_hashes_normalized_recording_metadata(tmp_path: Path) -> None:
+def test_lyrics_cache_key_includes_track_and_normalized_metadata(tmp_path: Path) -> None:
     original = make_track(tmp_path / "one.mp3")
     duplicate = replace(
         original,
@@ -50,23 +50,23 @@ def test_lyrics_cache_key_hashes_normalized_recording_metadata(tmp_path: Path) -
     )
     different_duration = replace(original, duration=81)
 
-    assert lyrics.lyrics_cache_key(original) == lyrics.lyrics_cache_key(duplicate)
+    assert lyrics.lyrics_cache_key(original) != lyrics.lyrics_cache_key(duplicate)
     assert lyrics.lyrics_cache_key(original) != lyrics.lyrics_cache_key(different_duration)
     assert len(lyrics.lyrics_cache_key(original)) == 64
 
 
-def test_plain_lyrics_get_weighted_estimated_timestamps() -> None:
+def test_plain_lyrics_remain_unsynchronized() -> None:
     payload = lyrics._pack(
         "lrclib-plain",
         lyrics._plain_lines("one\ntwo three\nfour"),
         synced=False,
     )
 
-    timed = lyrics._estimate_line_timing(payload, 80)
+    timed = lyrics._normalize_lyrics_timing(payload)
 
-    assert timed["synced"] is True
-    assert timed["timing"] == "estimated"
-    assert [line["t"] for line in timed["lines"]] == [0, 20, 60]
+    assert timed["synced"] is False
+    assert timed["timing"] == "none"
+    assert all(line["t"] is None for line in timed["lines"])
     assert all(not line["words"] for line in timed["lines"])
 
 
@@ -103,7 +103,7 @@ async def test_fetch_lyrics_caches_by_hash_and_uses_cache_on_repeat(
     assert calls == 1
     assert first == second
     assert second["cache_key"] == lyrics.lyrics_cache_key(track)
-    assert second["timing"] == "estimated"
+    assert second["timing"] == "none"
     assert lyrics.lyrics_cache_path(track).is_file()
 
 

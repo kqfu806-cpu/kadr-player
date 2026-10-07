@@ -698,9 +698,33 @@ html:not(.collapsed) .rail-open { display: none !important; }
   inset: 0;
   display: flex;
   will-change: transform, opacity;
+  isolation: isolate;
+}
+.media-layer::before {
+  content: "";
+  position: absolute;
+  inset: 1.5%;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--cover-image) center / cover no-repeat;
+  filter: blur(3.5rem) saturate(1.5);
+  opacity: 0.5;
+  transform: scale(1.06);
+  pointer-events: none;
+}
+.media-layer.lyrics-only {
+  background: #09090c;
+}
+.media-layer.lyrics-only::before { opacity: 0.18; }
+.media-layer.lyrics-only .art-stage { background: transparent; }
+.media-layer.is-clip .video-wrap {
+  inset: 2.5%;
+  border-radius: 1.1rem;
+  box-shadow: 0 0 4rem rgba(var(--glow), 0.48);
 }
 .art-stage {
   position: relative;
+  z-index: 1;
   flex: 1;
   width: 100%;
   height: 100%;
@@ -871,6 +895,19 @@ html:not(.collapsed) .rail-open { display: none !important; }
   top: 1rem; right: 1rem;
   z-index: 50;
   background: color-mix(in srgb, var(--bg) 62%, transparent) !important;
+}
+.display-mode-toggle {
+  position: absolute;
+  top: 1rem;
+  right: 4rem;
+  z-index: 50;
+  max-width: min(13rem, 52vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(0.8rem);
 }
 
 .resolving {

@@ -93,11 +93,12 @@ def _normalize_identity(value: str) -> str:
 
 
 def lyrics_cache_key(track: Track) -> str:
-    """Stable SHA-256 key shared by files with the same recording metadata."""
+    """Hash track ID and normalized metadata to prevent lyrics cross-contamination."""
     duration = max(0, int(round(track.duration or 0)))
     identity = "\0".join(
         (
-            "lyrics-v1",
+            "lyrics-v2",
+            track.id,
             _normalize_identity(track.artist),
             _normalize_identity(track.title),
             _normalize_identity(track.album),
@@ -159,9 +160,7 @@ def save_cached(track: Track, payload: dict[str, Any]) -> dict[str, Any]:
     return cached
 
 
-def _estimate_line_timing(
-    payload: dict[str, Any], duration: float | None
-) -> dict[str, Any]:
+def _normalize_lyrics_timing(payload: dict[str, Any]) -> dict[str, Any]:
     result = {**payload}
     lines = [dict(line) for line in payload.get("lines", []) if isinstance(line, dict)]
     result["lines"] = lines
@@ -170,29 +169,16 @@ def _estimate_line_timing(
         result["synced"] = False
         return result
     if result.get("timing") == "estimated":
-        return result
+        result["synced"] = False
     if result.get("synced") and all(line.get("t") is not None for line in lines):
         result["timing"] = "timestamped"
         return result
 
-    total_duration = float(duration or 0)
-    if total_duration <= 0:
-        result["timing"] = "none"
-        result["synced"] = False
-        return result
-
-    weights = [
-        max(1, len(re.findall(r"\w+", str(line.get("text") or ""))))
-        for line in lines
-    ]
-    total_weight = sum(weights)
-    elapsed_weight = 0
-    for line, weight in zip(lines, weights):
-        line["t"] = round(total_duration * elapsed_weight / total_weight, 3)
+    for line in lines:
+        line["t"] = None
         line["words"] = []
-        elapsed_weight += weight
-    result["timing"] = "estimated"
-    result["synced"] = True
+    result["timing"] = "none"
+    result["synced"] = False
     return result
 
 
@@ -414,7 +400,7 @@ async def fetch_lyrics(
         hit = load_cached(track)
         if hit:
             if hit.get("ok"):
-                timed = _estimate_line_timing(hit, track.duration)
+                timed = _normalize_lyrics_timing(hit)
                 return timed if timed == hit else save_cached(track, timed)
             try:
                 age = time.time() - float(hit.get("checked_at", 0))
@@ -425,23 +411,23 @@ async def fetch_lyrics(
 
     local = _local_lrc(track)
     if local:
-        return save_cached(track, _estimate_line_timing(local, track.duration))
+        return save_cached(track, _normalize_lyrics_timing(local))
 
     got = await _lrclib_get(client, track)
     if got and got.get("ok"):
-        return save_cached(track, _estimate_line_timing(got, track.duration))
+        return save_cached(track, _normalize_lyrics_timing(got))
 
     got = await _lrclib_search_pick(client, track)
     if got and got.get("ok"):
-        return save_cached(track, _estimate_line_timing(got, track.duration))
+        return save_cached(track, _normalize_lyrics_timing(got))
 
     got = await _mirror(client, track)
     if got and got.get("ok"):
-        return save_cached(track, _estimate_line_timing(got, track.duration))
+        return save_cached(track, _normalize_lyrics_timing(got))
 
     got = await _ollama_recall(client, ollama, track)
     if got and got.get("ok"):
-        return save_cached(track, _estimate_line_timing(got, track.duration))
+        return save_cached(track, _normalize_lyrics_timing(got))
 
     empty = {
         "ok": False,

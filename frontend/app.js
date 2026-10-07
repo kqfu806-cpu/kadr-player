@@ -18,6 +18,22 @@
   const weeklySavedKey = "kurymdyk-weekly-saved";
   const waveModeKey = "kurymdyk-wave-mode";
   const waveSettingsKey = "kurymdyk-wave-settings";
+  const displayModeStorageKey = "kurymdyk-display-mode";
+  const displayModes = [
+    { id: "clipLyrics", label: "🎬 Клип и текст" },
+    { id: "clipOnly", label: "🎬 Только клип" },
+    { id: "coverLyrics", label: "🖼️ Обложка и текст" },
+    { id: "coverOnly", label: "🖼️ Только обложка" },
+    { id: "lyricsOnly", label: "📝 Только текст" },
+  ];
+  function readDisplayMode() {
+    try {
+      const value = localStorage.getItem(displayModeStorageKey);
+      return displayModes.some((mode) => mode.id === value) ? value : "clipLyrics";
+    } catch (_) {
+      return "clipLyrics";
+    }
+  }
   const waveModes = ["new", "library", "forgotten", "favorite", "mix"];
   function readWaveSettings() {
     try {
@@ -89,6 +105,9 @@
     muted: false,
     media: null, // ответ /api/resolve
     mode: "audio", // audio | youtube
+    visualMode: readDisplayMode(),
+    loadingVideoId: null,
+    currentVideoId: null,
     yt: null,
     ytReady: false,
     seeking: false,
@@ -474,6 +493,7 @@
       if (state.yt && state.yt.destroy) state.yt.destroy();
     } catch (_) {}
     state.yt = null;
+    state.currentVideoId = null;
     $("ytPlayer").innerHTML = "";
   }
 
@@ -484,7 +504,6 @@
       return false;
     }
     $("videoWrap").classList.remove("hidden");
-    $("coverWrap").classList.remove("hidden");
     $("mediaLayer").classList.add("is-clip");
     showClipLoader(true);
     requestAnimationFrame(() => $("videoWrap").classList.add("on"));
@@ -549,6 +568,7 @@
       setTimeout(resolve, 4000);
     });
     state.mode = "youtube";
+    state.currentVideoId = videoId;
     audio.pause();
     return true;
   }
@@ -644,6 +664,7 @@
     $("mediaLayer").classList.remove("is-clip");
     destroyYT();
     state.mode = "audio";
+    applyDisplayMode();
 
     audio.src = `/api/stream/${t.id}`;
     audio.play().catch(() => {});
@@ -732,16 +753,75 @@
   function applyClip(t, media, gen) {
     if (gen !== undefined && gen !== state.playGen) return;
     if (!media) return;
+    state.media = media;
     $("nowReason").textContent = media.reason || "";
     if (media.display === "clip" && media.youtube_id) {
       const badge = $("modeBadge");
       badge.className = "badge clip";
       badge.textContent = "КЛИП";
-      playYouTube(media.youtube_id);
       if (media.thumb) {
         setCover(`/api/cover-proxy?url=${encodeURIComponent(media.thumb)}`);
       }
     }
+    applyDisplayMode();
+  }
+
+  function applyDisplayMode() {
+    const mode = state.visualMode;
+    const wantsLyrics = mode === "clipLyrics" || mode === "coverLyrics" || mode === "lyricsOnly";
+    const wantsClip = (mode === "clipLyrics" || mode === "clipOnly") &&
+      state.media && state.media.display === "clip" && state.media.youtube_id;
+    const video = $("videoWrap");
+    const cover = $("coverWrap");
+    const lyrics = $("lyricsPanel");
+    $("mediaLayer").classList.toggle("lyrics-only", mode === "lyricsOnly");
+    lyrics.classList.toggle("hidden", !wantsLyrics || !state.lyrics);
+    if (wantsClip) {
+      video.classList.remove("hidden");
+      cover.classList.add("hidden");
+      $("mediaLayer").classList.add("is-clip");
+      if (
+        state.currentVideoId !== state.media.youtube_id &&
+        state.loadingVideoId !== state.media.youtube_id
+      ) {
+        const videoId = state.media.youtube_id;
+        state.loadingVideoId = videoId;
+        playYouTube(videoId).then((started) => {
+          state.loadingVideoId = null;
+          if (!started) {
+            $("videoWrap").classList.add("hidden");
+            $("coverWrap").classList.toggle("hidden", mode === "lyricsOnly");
+          } else applyDisplayMode();
+        });
+      }
+      return;
+    }
+
+    if (state.mode === "youtube") {
+      const position = getPosition();
+      try { state.yt?.pauseVideo(); } catch (_) {}
+      state.mode = "audio";
+      if (Number.isFinite(position) && audio.duration && position < audio.duration) {
+        audio.currentTime = position;
+      }
+      if (!audio.paused) audio.pause();
+      audio.play().catch(() => {});
+      setPlaying(true);
+    }
+    video.classList.add("hidden");
+    video.classList.remove("on");
+    $("mediaLayer").classList.remove("is-clip");
+    cover.classList.toggle("hidden", mode === "lyricsOnly");
+  }
+
+  function setDisplayMode(mode) {
+    if (!displayModes.some((item) => item.id === mode)) return;
+    state.visualMode = mode;
+    try { localStorage.setItem(displayModeStorageKey, mode); } catch (_) {}
+    const current = displayModes.find((item) => item.id === mode);
+    $("displayModeToggle").textContent = current.label;
+    $("displayModeToggle").title = current.label;
+    applyDisplayMode();
   }
 
   function setCover(url) {
@@ -749,6 +829,7 @@
     if (/^https?:\/\//i.test(url) && url.indexOf(location.origin) !== 0) {
       url = `/api/cover-proxy?url=${encodeURIComponent(url)}`;
     }
+    document.documentElement.style.setProperty("--cover-image", `url("${url}")`);
     const a = $("coverImg");
     const b = $("coverImgB");
     const prev = a.src;
@@ -1223,6 +1304,13 @@
     $("durTime").textContent = fmt(d);
     syncLyrics(p);
     drawViz();
+    const now = performance.now();
+    if (now - (state.lastSeekPaint || 0) >= 100) {
+      state.lastSeekPaint = now;
+      const track = currentTrack();
+      const peaks = track && !track.external ? waveCache[track.id] : null;
+      drawWave(peaks, d > 0 ? p / d : 0);
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
@@ -1390,8 +1478,6 @@
         burstBass(r.left + r.width / 2, r.top + r.height / 2);
       }
     }
-    const ct = currentTrack();
-    if (ct && waveCache[ct.id] && waveCache[ct.id] !== true) drawWave(waveCache[ct.id]);
   }
 
   // ---------- кнопки и горячие клавиши ----------
@@ -1405,6 +1491,11 @@
   });
   $("btnPlayerWave")?.addEventListener("click", startWave);
   $("btnWaveHero")?.addEventListener("click", startWave);
+  $("displayModeToggle")?.addEventListener("click", () => {
+    const currentIndex = displayModes.findIndex((mode) => mode.id === state.visualMode);
+    setDisplayMode(displayModes[(currentIndex + 1) % displayModes.length].id);
+  });
+  setDisplayMode(state.visualMode);
   document.querySelectorAll("[data-wave-mode]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.waveMode === state.waveModeKey));
     button.classList.toggle("is-active", button.dataset.waveMode === state.waveModeKey);
@@ -1944,24 +2035,20 @@
     scroll.innerHTML = "";
     scroll.style.transform = "none";
     try {
-      let data = lyricsCache.get(track.id);
+      const cacheKey = `${track.id}\0${track.artist.trim().toLocaleLowerCase()}\0${track.title.trim().toLocaleLowerCase()}`;
+      let data = lyricsCache.get(cacheKey);
       if (!data) data = await api(`/api/lyrics/${track.id}`);
       if (gen !== undefined && gen !== state.playGen) return;
       if (!data || !data.ok || !data.lines || !data.lines.length) {
         toast("Текст песни не найден");
         return;
       }
-      lyricsCache.set(track.id, data);
+      lyricsCache.set(cacheKey, data);
       state.lyrics = data;
-      panel.classList.remove("hidden");
       panel.classList.toggle("plain", !data.synced);
       $("mediaLayer").classList.add("has-lyrics");
       const note =
-        data.timing === "estimated"
-          ? `<div class="lyrics-note">примерная синхронизация</div>`
-          : data.synced
-            ? ""
-            : `<div class="lyrics-note">текст без синхронизации</div>`;
+        data.synced ? "" : `<div class="lyrics-note">Текст показан без временных меток</div>`;
       scroll.style.transform = "none";
       scroll.innerHTML =
         note +
@@ -1980,6 +2067,7 @@
           })
           .join("");
       if (data.synced) syncLyrics(0);
+      applyDisplayMode();
     } catch (error) {
       console.warn("Lyrics lookup failed:", error);
       if (gen === undefined || gen === state.playGen) {
@@ -2138,6 +2226,7 @@
 
   // ---------- текст: клик = перемотка, ручной скролл ----------
   $("lyricsScroll").addEventListener("click", (e) => {
+    if (!state.lyrics || !state.lyrics.synced) return;
     const word = e.target.closest(".lyric-word");
     const line = e.target.closest(".lyric-line");
     const t = word ? Number(word.dataset.t) : line ? Number(line.dataset.t) : NaN;
@@ -2558,15 +2647,21 @@
       waveCache[trackId] = null;
     }
   }
-  function drawWave(peaks) {
+  function drawWave(peaks, progress) {
     const c = $("waveSeek");
-    if (!c || !peaks || peaks === true) return;
+    if (!c) return;
     const ctx = c.getContext("2d");
     const w = c.width, h = c.height;
     ctx.clearRect(0, 0, w, h);
-    const d = getDuration() || 1;
-    const p = getPosition() / d;
+    const p = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
     const acc = getComputedStyle(document.documentElement).getPropertyValue("--accent-1").trim() || "#fff";
+    if (!Array.isArray(peaks) || !peaks.length) {
+      ctx.fillStyle = "rgba(255,255,255,0.16)";
+      ctx.fillRect(0, h / 2 - 2, w, 4);
+      ctx.fillStyle = acc;
+      ctx.fillRect(0, h / 2 - 2, w * p, 4);
+      return;
+    }
     const n = peaks.length;
     const bw = w / n;
     for (let i = 0; i < n; i++) {
