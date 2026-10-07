@@ -141,6 +141,8 @@ def test_artist_profile_combines_library_lastfm_and_musicbrainz(
     assert response.status_code == 200
     profile = response.json()
     assert profile["artist"] == "Artist"
+    assert profile["lastfm_available"] is True
+    assert profile["image"] == "https://lastfm.freetls.fastly.net/image.jpg"
     assert profile["bio"] == "A test bio & facts"
     assert profile["genres"] == [{"name": "alternative rock", "count": 20}]
     assert [track["id"] for track in profile["local_tracks"]] == ["local-id"]
@@ -150,7 +152,7 @@ def test_artist_profile_combines_library_lastfm_and_musicbrainz(
     assert profile["releases"][0]["title"] == "Recent album"
 
 
-def test_artist_profile_rejects_lastfm_errors(
+def test_artist_profile_gracefully_degrades_when_lastfm_is_unavailable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def missing_key(_name: str) -> dict[str, Any]:
@@ -160,10 +162,65 @@ def test_artist_profile_rejects_lastfm_errors(
 
     monkeypatch.setattr(app_module.lastfm_client, "get_artist_info", missing_key)
 
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"data": []}
+
+    class DeezerClient:
+        async def get(self, *_args: Any, **_kwargs: Any) -> Response:
+            return Response()
+
+    monkeypatch.setattr(app_module, "_client", lambda: DeezerClient())
+
     response = client.get("/api/artist/Artist")
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "LASTFM_API_KEY is required"
+    assert response.status_code == 200
+    profile = response.json()
+    assert profile["lastfm_available"] is False
+    assert profile["local_tracks"][0]["title"] == "Local song"
+    assert "Данные об артисте недоступны. Проверьте VPN или интернет" in profile["warnings"]
+    assert profile["image"] == ""
+
+
+def test_artist_profile_falls_back_to_deezer_artist_image(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def artist_without_image(_name: str) -> dict[str, Any]:
+        return {
+            "name": "Artist",
+            "mbid": ARTIST_MBID,
+            "bio": {},
+            "image": [],
+        }
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "data": [
+                    {
+                        "name": "Artist",
+                        "picture_xl": "https://e-cdns-images.dzcdn.net/images/artist/photo.jpg",
+                    }
+                ]
+            }
+
+    class DeezerClient:
+        async def get(self, *_args: Any, **_kwargs: Any) -> Response:
+            return Response()
+
+    monkeypatch.setattr(app_module.lastfm_client, "get_artist_info", artist_without_image)
+    monkeypatch.setattr(app_module, "_client", lambda: DeezerClient())
+
+    response = client.get("/api/artist/Artist")
+
+    assert response.status_code == 200
+    assert response.json()["image"] == "https://e-cdns-images.dzcdn.net/images/artist/photo.jpg"
 
 
 def test_artist_profile_accepts_slashes_in_artist_name(client: TestClient) -> None:

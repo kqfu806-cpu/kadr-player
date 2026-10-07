@@ -3370,25 +3370,15 @@
     }
   });
 
-  function profileSource(url) {
-    try {
-      const parsed = new URL(url);
-      return parsed.protocol === "https:" && parsed.hostname === "www.last.fm"
-        ? parsed.href
-        : "";
-    } catch (_) {
-      return "";
-    }
-  }
-
   function renderArtistProfile(profile) {
     const content = $("profileContent");
     const status = $("profileStatus");
     if (!content || !status) return;
     status.textContent = `${profile.local_tracks.length} треков в библиотеке`;
+    const fallbackInitial = String(profile.artist || "?").trim().charAt(0).toLocaleUpperCase() || "?";
     const image = profile.image
-      ? `<img class="profile-image" src="${esc(profile.image)}" alt="" referrerpolicy="no-referrer">`
-      : `<span class="profile-image missing" aria-hidden="true"></span>`;
+      ? `<img class="profile-image" src="${esc(profile.image)}" alt="${esc(profile.artist)}" data-fallback="${esc(fallbackInitial)}" referrerpolicy="no-referrer">`
+      : `<span class="profile-image missing" aria-hidden="true">${esc(fallbackInitial)}</span>`;
     const genres = (profile.genres || []).map((tag) =>
       `<span class="profile-tag">${esc(window.i18n ? window.i18n.genre(tag.name) : tag.name)}</span>`).join("");
     const localRows = profile.local_tracks.length
@@ -3398,10 +3388,9 @@
       : `<li class="muted">Треков в локальной библиотеке нет.</li>`;
     const topRows = (profile.top_tracks || []).length
       ? profile.top_tracks.map((track) => {
-        const url = profileSource(track.url);
         const action = track.in_library
           ? `<span class="muted">В библиотеке</span>`
-          : (url ? `<a class="profile-open" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Открыть в Last.fm ↗</a>` : "");
+          : `<button class="btn ghost" type="button" disabled title="Скачивание пока недоступно">Скачать</button>`;
         return `<li><span class="profile-track-main">${esc(track.title)}<small>${esc(track.listeners)} ${window.i18n ? window.i18n.t("profile.listeners") : "прослушиваний"}</small></span>${action}</li>`;
       }).join("")
       : `<li class="muted">Last.fm не вернул топ-треки.</li>`;
@@ -3413,13 +3402,17 @@
         `<a class="profile-open" href="${esc(release.url)}" target="_blank" rel="noopener noreferrer">MusicBrainz ↗</a></li>`).join("")
       : `<li class="muted">Релизов за последние 3 месяца не найдено.</li>`;
     const warnings = (profile.warnings || []).map((warning) =>
-      `<p class="profile-warning">${esc(warning)}</p>`).join("");
+      `<p class="profile-warning">${esc(warning)}</p>`).filter((warning) =>
+        !warning.includes("Данные об артисте недоступны")).join("");
     const artistUrl = `https://www.last.fm/music/${encodeURIComponent(profile.artist)}`;
+    const unavailable = profile.lastfm_available === false
+      ? `<p class="profile-warning">Данные об артисте недоступны. Проверьте VPN или интернет</p>`
+      : "";
     content.innerHTML =
       `<div class="profile-hero">${image}<div><h1 class="profile-title">${esc(profile.artist)}</h1>` +
       `<div class="profile-tags">${genres || `<span class="muted">Жанры не указаны</span>`}</div>` +
       `<a class="profile-open" href="${esc(artistUrl)}" target="_blank" rel="noopener noreferrer">Профиль Last.fm ↗</a>` +
-      `<p class="profile-bio">${esc(window.i18n ? window.i18n.localizeText(profile.bio || window.i18n.t("profile.noBiography")) : (profile.bio || "Биография не указана."))}</p></div></div>` +
+      `<p class="profile-bio">${esc(window.i18n ? window.i18n.localizeText(profile.bio || window.i18n.t("profile.noBiography")) : (profile.bio || "Биография не указана."))}</p>${unavailable}</div></div>` +
       `<div class="profile-sections">` +
       `<section class="profile-section"><h2>В библиотеке</h2><ul class="profile-list">${localRows}</ul></section>` +
       `<section class="profile-section"><h2>Топ треки · Last.fm</h2><ul class="profile-list">${topRows}</ul></section>` +
@@ -3466,6 +3459,14 @@
     const artistButton = event.target.closest("[data-profile-artist]");
     if (artistButton) openArtistProfile(artistButton.dataset.profileArtist);
   });
+  $("profileContent")?.addEventListener("error", (event) => {
+    const image = event.target.closest("img.profile-image");
+    if (!image) return;
+    const fallback = document.createElement("span");
+    fallback.className = "profile-image missing";
+    fallback.textContent = image.dataset.fallback || "?";
+    image.replaceWith(fallback);
+  }, true);
 
   $("tabTracks")?.addEventListener("click", () => setSideTab("tracks"));
   $("tabArtists")?.addEventListener("click", () => setSideTab("artists"));

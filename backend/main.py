@@ -388,24 +388,29 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
     name = name.strip()
     if not name:
         raise HTTPException(400, "Укажите имя исполнителя")
+    warnings: list[str] = []
     try:
         info = await lastfm_client.get_artist_info(name)
-        artist_name = str(info.get("name") or name)
+        artist_name = str(info.get("name") or name).strip()
         similar, top_tracks, tags = await asyncio.gather(
             lastfm_client.get_similar_artists(artist_name, 10),
             lastfm_client.get_artist_top_tracks(artist_name, 20),
             lastfm_client.get_artist_top_tags(artist_name, 10),
         )
-    except LastFmConfigurationError as exc:
-        raise HTTPException(503, str(exc)) from exc
     except LastFmError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        logging.getLogger("kadr.artist").warning(
+            "Last.fm profile lookup failed for %s: %s", name, type(exc).__name__
+        )
+        info = {}
+        artist_name = name
+        similar, top_tracks, tags = [], [], []
+        warnings.append("Данные об артисте недоступны. Проверьте VPN или интернет")
 
-    artist_key = artist_name.casefold()
+    artist_keys = {artist_name.casefold(), name.casefold()}
     local_tracks = [
         track.to_dict()
         for track in library.values()
-        if track.artist.strip().casefold() == artist_key
+        if track.artist.strip().casefold() in artist_keys
     ]
     formatted_tracks = []
     for track in top_tracks:
@@ -472,6 +477,45 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
         )
         if image_url and not image_url.startswith("https://lastfm.freetls.fastly.net/"):
             image_url = ""
+    if not image_url:
+        try:
+            response = await _client().get(
+                "https://api.deezer.com/search/artist",
+                params={"q": artist_name},
+                timeout=5.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            candidates = payload.get("data", []) if isinstance(payload, dict) else []
+            if not isinstance(candidates, list):
+                candidates = []
+            match = next(
+                (
+                    item
+                    for item in candidates
+                    if isinstance(item, dict)
+                    and str(item.get("name") or "").strip().casefold()
+                    == artist_name.casefold()
+                ),
+                None,
+            )
+            if match:
+                candidate = str(
+                    match.get("picture_xl")
+                    or match.get("picture_big")
+                    or match.get("picture_medium")
+                    or ""
+                )
+                if candidate.startswith("https://"):
+                    parsed_image = httpx.URL(candidate)
+                    if (parsed_image.host or "").casefold().endswith(".dzcdn.net"):
+                        image_url = candidate
+        except (httpx.HTTPError, ValueError) as exc:
+            logging.getLogger("kadr.artist").warning(
+                "Deezer artist image lookup failed for %s: %s",
+                artist_name,
+                type(exc).__name__,
+            )
 
     return {
         "artist": artist_name,
@@ -486,7 +530,8 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
         "local_tracks": local_tracks,
         "top_tracks": top_tracks,
         "releases": releases,
-        "warnings": [release_error] if release_error else [],
+        "warnings": warnings + ([release_error] if release_error else []),
+        "lastfm_available": not bool(warnings),
         "sources": {"lastfm": "Last.fm", "musicbrainz": "MusicBrainz"},
     }
 

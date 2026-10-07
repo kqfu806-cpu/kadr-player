@@ -1701,7 +1701,13 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--glass);
   box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.2);
 }
-.profile-image.missing { display: block; }
+.profile-image.missing {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: clamp(1.5rem, 4vw, 3rem);
+  font-weight: 700;
+}
 .profile-title { margin: 0; font-size: clamp(1.8rem, 4vw, 3.4rem); letter-spacing: -0.04em; }
 .profile-bio { max-width: 52rem; color: var(--muted); line-height: 1.65; }
 .profile-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0; }
