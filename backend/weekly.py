@@ -16,7 +16,7 @@ import httpx
 from .config import ROOT
 from .lastfm_client import LastFmClient, LastFmError
 from .ollama_ai import OllamaClient
-from .releases import MAX_FOLLOWED_ARTISTS, fetch_weekly_releases
+from .releases import fetch_weekly_releases
 from .scanner import Track
 from .wave import _listening_data, cosine_similarity, load_embeddings
 
@@ -33,7 +33,7 @@ def _normalize(value: str) -> str:
     return re.sub(r"[^\w]+", " ", value.casefold()).strip()
 
 
-def _signature(tracks: list[Track]) -> str:
+def _signature(tracks: list[Track], extra_artists: list[str] | None = None) -> str:
     local = sorted(
         (
             track.artist.casefold(),
@@ -43,7 +43,21 @@ def _signature(tracks: list[Track]) -> str:
         for track in tracks
     )
     return hashlib.sha256(
-        json.dumps(local, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        json.dumps(
+            [
+                "weekly-v2",
+                local,
+                sorted(
+                    {
+                        name.strip().casefold()
+                        for name in (extra_artists or [])
+                        if isinstance(name, str) and name.strip()
+                    }
+                ),
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).hexdigest()
 
 
@@ -111,7 +125,7 @@ async def _artist_seeds(
         counts,
         key=lambda artist: (play_counts.get(artist, 0), counts[artist], artist.casefold()),
         reverse=True,
-    )[:MAX_SEED_ARTISTS]
+    )
     artist_names = list(seeds)
     affinity: dict[str, float] = {}
     warnings: list[str] = []
@@ -132,7 +146,7 @@ async def _artist_seeds(
             affinity[name.casefold()] = max(affinity.get(name.casefold(), 0.0), match)
             if name.casefold() not in {artist.casefold() for artist in artist_names}:
                 artist_names.append(name)
-    return artist_names[:MAX_FOLLOWED_ARTISTS], affinity, warnings
+    return artist_names, affinity, warnings
 
 
 def _lastfm_track_key(item: dict[str, Any]) -> tuple[str, str]:
@@ -277,8 +291,9 @@ async def get_weekly(
     tracks: list[Track],
     ollama: OllamaClient | None = None,
     force: bool = False,
+    extra_artists: list[str] | None = None,
 ) -> dict[str, Any]:
-    signature = _signature(tracks)
+    signature = _signature(tracks, extra_artists)
     async with _cache_lock:
         if not force:
             cached = _read_cache(signature)
@@ -286,6 +301,12 @@ async def get_weekly(
                 return cached
 
         artists, affinity, warnings = await _artist_seeds(tracks, lastfm)
+        known_artists = {artist.casefold() for artist in artists}
+        for artist in extra_artists or []:
+            name = artist.strip()
+            if name and name.casefold() not in known_artists:
+                artists.append(name)
+                known_artists.add(name.casefold())
         if not artists:
             data = {
                 "source": "Deezer + Last.fm",
@@ -300,14 +321,19 @@ async def get_weekly(
             {"artist": track.artist, "title": track.title, "album": track.album}
             for track in tracks
         ]
-        try:
-            releases = await fetch_weekly_releases(
-                client, artists, days=7, local_tracks=local_tracks
-            )
-        except (httpx.HTTPError, ValueError) as exc:
-            log.exception("Weekly Deezer release lookup failed")
-            warnings.append(f"Deezer unavailable: {type(exc).__name__}")
-            releases = {"tracks": [], "albums": [], "errors": []}
+        releases: dict[str, Any] = {"tracks": [], "albums": [], "errors": []}
+        for days in (7, 14, 30):
+            try:
+                releases = await fetch_weekly_releases(
+                    client, artists, days=days, local_tracks=local_tracks
+                )
+            except (httpx.HTTPError, ValueError) as exc:
+                log.exception("Weekly Deezer release lookup failed")
+                warnings.append(f"Deezer unavailable: {type(exc).__name__}")
+                releases = {"tracks": [], "albums": [], "errors": []}
+            if releases.get("tracks") or releases.get("albums") or days == 30:
+                releases["window_days"] = days
+                break
         warnings.extend(str(error) for error in releases.get("errors", []))
         new_tracks = [
             item
@@ -323,6 +349,7 @@ async def get_weekly(
             "source": "Deezer + Last.fm",
             "from": releases.get("from"),
             "to": releases.get("to"),
+            "window_days": releases.get("window_days", 30),
             "tracks": _rank_items(new_tracks, affinity, taste_tracks, embedding_scores),
             "albums": _rank_items(albums, affinity, taste_tracks, embedding_scores),
             "warnings": list(dict.fromkeys(warnings)),

@@ -47,7 +47,6 @@ from .lyrics import fetch_lyrics, lyrics_cache_path
 from .media_resolver import MediaResolver
 from .ollama_ai import OllamaClient
 from .placeholder import generate_placeholder
-from .releases import fetch_weekly_releases
 from .scanner import Track, read_track, scan_folder
 from .translator import translate_biography
 from . import stats as listening_stats
@@ -755,21 +754,19 @@ async def api_wave_signal(body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/api/new-releases")
 async def api_new_releases(body: dict[str, Any]) -> dict[str, Any]:
-    artists = body.get("artists") if isinstance(body, dict) else []
+    artists = body.get("artists", [])
     if not isinstance(artists, list):
         artists = []
-    local_tracks = [
-        {"artist": track.artist, "title": track.title, "album": track.album}
-        for track in library.values()
-    ]
-    try:
-        days = int(body.get("days", 7))
-    except (TypeError, ValueError):
-        days = 7
-    return await fetch_weekly_releases(_client(), artists, days, local_tracks)
+    return await _weekly_snapshot(
+        force=bool(body.get("force")),
+        followed_artists=[str(name) for name in artists],
+    )
 
 
-async def _weekly_snapshot(force: bool = False) -> dict[str, Any]:
+async def _weekly_snapshot(
+    force: bool = False,
+    followed_artists: list[str] | None = None,
+) -> dict[str, Any]:
     if not library:
         raise HTTPException(400, "Сначала выберите папку с музыкой")
     return await weekly_engine.get_weekly(
@@ -778,6 +775,7 @@ async def _weekly_snapshot(force: bool = False) -> dict[str, Any]:
         list(library.values()),
         ollama=ollama,
         force=force,
+        extra_artists=followed_artists,
     )
 
 
@@ -793,9 +791,20 @@ async def api_weekly_albums() -> dict[str, Any]:
     return {key: value for key, value in data.items() if key != "tracks"}
 
 
+@app.get("/api/weekly")
+async def api_weekly(artist: list[str] = Query(default=[])) -> dict[str, Any]:
+    return await _weekly_snapshot(followed_artists=artist)
+
+
 @app.post("/api/weekly/refresh")
-async def api_weekly_refresh() -> dict[str, Any]:
-    return await _weekly_snapshot(force=True)
+async def api_weekly_refresh(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    artists = (body or {}).get("artists", [])
+    if not isinstance(artists, list):
+        artists = []
+    return await _weekly_snapshot(
+        force=True,
+        followed_artists=[str(name) for name in artists],
+    )
 
 
 @app.get("/api/library")

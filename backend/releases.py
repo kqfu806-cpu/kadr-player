@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 import httpx
 
 API = "https://api.deezer.com"
-MAX_FOLLOWED_ARTISTS = 12
 MAX_RELEASES_PER_ARTIST = 50
 log = logging.getLogger("kadr.deezer")
 
@@ -144,10 +143,9 @@ async def fetch_weekly_releases(
 ) -> dict[str, Any]:
     """Return new Deezer singles/tracks and albums, excluding local recordings."""
     names = list(dict.fromkeys(name.strip() for name in artist_names if isinstance(name, str) and name.strip()))
-    names = names[:MAX_FOLLOWED_ARTISTS]
     today = date.today()
-    cutoff = today - timedelta(days=max(1, min(int(days), 14)))
-    semaphore = asyncio.Semaphore(3)
+    cutoff = today - timedelta(days=max(1, min(int(days), 30)))
+    semaphore = asyncio.Semaphore(8)
     results = await asyncio.gather(
         *(_artist_releases(client, name, cutoff, today, semaphore) for name in names)
     )
@@ -170,7 +168,11 @@ async def fetch_weekly_releases(
         and (_normalize(release["artist"]), _normalize(release["title"])) not in local_albums
     ]
     release_tracks = await asyncio.gather(
-        *(_single_tracks(client, release, semaphore) for release in releases)
+        *(
+            _single_tracks(client, release, semaphore)
+            for release in releases
+            if release["type"] == "single"
+        )
     )
     tracks: list[dict[str, Any]] = []
     seen_tracks: set[tuple[str, str]] = set()

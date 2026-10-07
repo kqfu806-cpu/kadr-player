@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -107,3 +107,63 @@ async def test_weekly_releases_degrade_when_deezer_is_unavailable(
     assert len(result["errors"]) == 1
     assert "Artist" in result["errors"][0]
     assert any(record.name == "kadr.deezer" for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_weekly_releases_include_all_artists_and_support_thirty_days(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artist_names = [f"Artist {index}" for index in range(20)]
+    looked_up: list[str] = []
+    observed_cutoffs: list[date] = []
+    tracklist_lookups: list[str] = []
+
+    async def artist_releases(
+        _client: Any,
+        name: str,
+        cutoff: date,
+        _today: date,
+        _semaphore: Any,
+    ) -> tuple[list[dict[str, Any]], None]:
+        looked_up.append(name)
+        observed_cutoffs.append(cutoff)
+        return [
+            {
+                "id": f"album-{name}",
+                "artist": name,
+                "title": "Album",
+                "date": date.today().isoformat(),
+                "url": "https://www.deezer.com/album/1",
+                "cover": "",
+                "type": "album",
+            },
+            {
+                "id": f"single-{name}",
+                "artist": name,
+                "title": "Single",
+                "date": date.today().isoformat(),
+                "url": "https://www.deezer.com/album/2",
+                "cover": "",
+                "type": "single",
+            },
+        ], None
+
+    async def single_tracks(
+        _client: Any, release: dict[str, Any], _semaphore: Any
+    ) -> list[dict[str, Any]]:
+        tracklist_lookups.append(release["type"])
+        return []
+
+    monkeypatch.setattr(releases, "_artist_releases", artist_releases)
+    monkeypatch.setattr(releases, "_single_tracks", single_tracks)
+
+    result = await releases.fetch_weekly_releases(
+        object(),  # type: ignore[arg-type]
+        artist_names,
+        days=30,
+    )
+
+    assert set(looked_up) == set(artist_names)
+    assert set(observed_cutoffs) == {date.today() - timedelta(days=30)}
+    assert tracklist_lookups == ["single"] * len(artist_names)
+    assert len(result["albums"]) == len(artist_names)

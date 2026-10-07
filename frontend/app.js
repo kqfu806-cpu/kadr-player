@@ -2837,15 +2837,21 @@
     const tracks = (data && data.tracks) || [];
     const albums = (data && data.albums) || [];
     const total = tracks.length + albums.length;
+    const windowDays = Number(data?.window_days) || 7;
+    const windowLabel = windowDays > 14
+      ? `За последние ${windowDays} дней (7 и 14 дней — пусто)`
+      : windowDays > 7
+        ? `За последние ${windowDays} дней (7 дней — пусто)`
+        : "За последние 7 дней";
     if (!total) {
       tracksHost.innerHTML = "";
       albumsHost.innerHTML = "";
-      status.textContent = data && data.errors && data.errors.length
+      status.textContent = data && data.warnings && data.warnings.length
         ? "Не удалось проверить некоторые источники"
-        : "Новых релизов за последние 7 дней нет";
+        : `Новых релизов не найдено · ${windowLabel}`;
       return;
     }
-    status.textContent = `${tracks.length} треков · ${albums.length} альбомов · Deezer`;
+    status.textContent = `${tracks.length} треков · ${albums.length} альбомов · ${windowLabel}`;
     const row = (release, withPreview) => {
       const releaseDate = new Date(`${release.date}T00:00:00`);
       const date = window.i18n
@@ -2869,44 +2875,18 @@
 
   async function loadWeeklyReleases(force) {
     const status = $("releaseStatus");
-    const counts = new Map();
-    for (const track of state.tracks) {
-      if (track.artist) counts.set(track.artist, (counts.get(track.artist) || 0) + 1);
-    }
-    const libraryArtists = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name);
-    const names = [...new Set([...state.followedArtists, ...libraryArtists])].slice(0, 12);
-    if (!names.length) {
-      renderWeeklyReleases({ tracks: [], albums: [], errors: [] });
+    const names = new Set(state.tracks.map((track) => track.artist).filter(Boolean));
+    if (!names.size) {
+      renderWeeklyReleases({ tracks: [], albums: [], warnings: [] });
       if (status) status.textContent = "Выбери папку с музыкой";
       return;
     }
-    const localTracks = [...new Map(state.tracks.map((track) => [
-      `${track.artist}\0${track.title}\0${track.album}`,
-      { artist: track.artist, title: track.title, album: track.album },
-    ])).values()];
-    const signature = `${names.slice().sort().join("\n")}\0${JSON.stringify(localTracks)}`;
-    const key = "kurymdyk-weekly-releases";
-    if (!force) {
-      try {
-        const cached = JSON.parse(localStorage.getItem(key) || "null");
-        if (cached && cached.signature === signature && Date.now() - cached.savedAt < 6 * 60 * 60 * 1000) {
-          renderWeeklyReleases(cached.data);
-          return;
-        }
-      } catch (_) {}
-    }
-    if (status) status.textContent = `Проверяю ${names.length} артистов…`;
+    if (status) status.textContent = `Проверяю ${names.size} артистов…`;
     try {
-      const data = await api("/api/new-releases", {
-        method: "POST",
-        body: JSON.stringify({ artists: names, local_tracks: localTracks, days: 7 }),
-      });
-      renderWeeklyReleases(data);
-      try { localStorage.setItem(key, JSON.stringify({ signature, savedAt: Date.now(), data })); } catch (_) {}
-    } catch (_) {
-      if (status) status.textContent = "Каталог релизов сейчас недоступен";
+      await loadWeekly(force);
+      renderWeeklyReleases(state.weeklyData || { tracks: [], albums: [], warnings: [] });
+    } catch (error) {
+      if (status) status.textContent = `Каталог релизов сейчас недоступен: ${error.message}`;
     }
   }
 
@@ -3147,6 +3127,13 @@
       host.innerHTML = `<p class="weekly-empty">${esc(weeklyData.warnings?.[0] || "Новых релизов за последние 7 дней не найдено.")}</p>`;
       return;
     }
+
+    function weeklyWindowLabel(data) {
+      const days = Number(data && data.window_days) || 7;
+      if (days > 14) return `За последние ${days} дней (7 и 14 дней — пусто)`;
+      if (days > 7) return `За последние ${days} дней (7 дней — пусто)`;
+      return "За последние 7 дней";
+    }
     host.innerHTML = items.map((item) => {
       const key = weeklyKey(item);
       const saved = weeklySaved.has(key);
@@ -3176,23 +3163,28 @@
     const refresh = $("weeklyRefresh");
     if (refresh) refresh.disabled = true;
     if (status) status.textContent = force ? "Обновляю подборку…" : "Загружаю подборку…";
+    const followedArtists = [...state.followedArtists];
+    const query = new URLSearchParams();
+    followedArtists.forEach((artist) => query.append("artist", artist));
+    const queryString = query.toString();
     try {
       const data = force
-        ? await api("/api/weekly/refresh", { method: "POST" })
-        : await (async () => {
-          const [tracks, albums] = await Promise.all([
-            api("/api/weekly/tracks"),
-            api("/api/weekly/albums"),
-          ]);
-          return { ...tracks, ...albums };
-        })();
+        ? await api("/api/weekly/refresh", {
+          method: "POST",
+          body: JSON.stringify({ artists: followedArtists }),
+        })
+        : await api(`/api/weekly${queryString ? `?${queryString}` : ""}`);
       state.weeklyData = data;
       const count = (data.tracks || []).length + (data.albums || []).length;
       const warning = data.warnings?.[0];
-      if (status) status.textContent = warning || `${count} релизов · последние 7 дней · ${data.source || "каталог"}`;
+      if (status) status.textContent = warning || `${count} релизов · ${weeklyWindowLabel(data)} · ${data.source || "каталог"}`;
       renderWeeklyItems(data);
     } catch (error) {
-      state.weeklyData = { tracks: [], albums: [], warnings: [] };
+      state.weeklyData = {
+        tracks: [],
+        albums: [],
+        warnings: [`Не удалось загрузить подборку: ${error.message}`],
+      };
       if (status) status.textContent = `Не удалось загрузить подборку: ${error.message}`;
       $("weeklyCards").innerHTML = `<p class="weekly-empty">Проверьте подключение и просканированную музыкальную библиотеку.</p>`;
     } finally {

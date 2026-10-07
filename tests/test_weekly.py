@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import date
+from dataclasses import replace
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -109,7 +110,13 @@ async def test_weekly_uses_six_hour_cache(
     async def releases(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         nonlocal calls
         calls += 1
-        return {"tracks": [], "albums": [], "errors": [], "from": "2025-01-01", "to": "2025-01-07"}
+        return {
+            "tracks": [],
+            "albums": [{"title": "Fresh Album"}],
+            "errors": [],
+            "from": "2025-01-01",
+            "to": "2025-01-07",
+        }
 
     monkeypatch.setattr(weekly, "_artist_seeds", seeds)
     monkeypatch.setattr(weekly, "_lastfm_taste_tracks", taste)
@@ -121,6 +128,65 @@ async def test_weekly_uses_six_hour_cache(
 
     assert calls == 1
     assert first == second
+
+
+@pytest.mark.asyncio
+async def test_weekly_checks_every_library_artist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artists = [f"Artist {index}" for index in range(842)]
+    tracks = [
+        replace(make_track(f"local-{index}"), artist=artist)
+        for index, artist in enumerate(artists)
+    ]
+    monkeypatch.setattr(weekly, "_listening_data", lambda: ({}, {}))
+
+    class LastFm:
+        async def get_similar_artists(self, *_args: Any) -> list[dict[str, Any]]:
+            return []
+
+    names, _, _ = await weekly._artist_seeds(tracks, LastFm())  # type: ignore[arg-type]
+
+    assert len(names) == 842
+    assert set(names) == set(artists)
+
+
+@pytest.mark.asyncio
+async def test_weekly_expands_empty_window_until_releases_are_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(weekly, "CACHE_PATH", tmp_path / "weekly.json")
+    monkeypatch.setattr(
+        weekly,
+        "_artist_seeds",
+        _resolved((["Library Artist"], {}, [])),
+    )
+    monkeypatch.setattr(weekly, "_lastfm_taste_tracks", _resolved(set()))
+    checked_days: list[int] = []
+
+    async def releases(*_args: Any, days: int, **_kwargs: Any) -> dict[str, Any]:
+        checked_days.append(days)
+        return {
+            "from": (date.today() - timedelta(days=days)).isoformat(),
+            "to": date.today().isoformat(),
+            "errors": [],
+            "tracks": [],
+            "albums": [{"artist": "Library Artist", "title": "Fresh Album"}]
+            if days == 14
+            else [],
+        }
+
+    monkeypatch.setattr(weekly, "fetch_weekly_releases", releases)
+
+    result = await weekly.get_weekly(
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        [make_track()],
+    )
+
+    assert checked_days == [7, 14]
+    assert result["window_days"] == 14
+    assert [album["title"] for album in result["albums"]] == ["Fresh Album"]
 
 
 def _resolved(value: Any):
@@ -139,13 +205,18 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         app_module.ollama.status.error = None
         return app_module.ollama.status
 
-    async def snapshot(*, force: bool = False) -> dict[str, Any]:
+    async def snapshot(
+        *,
+        force: bool = False,
+        followed_artists: list[str] | None = None,
+    ) -> dict[str, Any]:
         return {
             "source": "test",
             "tracks": [{"title": "Single"}],
             "albums": [{"title": "Album"}],
             "warnings": [],
             "force": force,
+            "followed_artists": followed_artists or [],
         }
 
     monkeypatch.setattr(app_module.ollama, "refresh_status", offline_ollama)
@@ -158,6 +229,7 @@ def test_weekly_endpoints_return_their_sections_and_refresh(client: TestClient) 
     tracks = client.get("/api/weekly/tracks")
     albums = client.get("/api/weekly/albums")
     refreshed = client.post("/api/weekly/refresh")
+    complete = client.get("/api/weekly?artist=Followed+Artist")
 
     assert tracks.status_code == 200
     assert tracks.json()["tracks"] == [{"title": "Single"}]
@@ -167,3 +239,6 @@ def test_weekly_endpoints_return_their_sections_and_refresh(client: TestClient) 
     assert "tracks" not in albums.json()
     assert refreshed.status_code == 200
     assert refreshed.json()["force"] is True
+    assert complete.status_code == 200
+    assert complete.json()["tracks"] == [{"title": "Single"}]
+    assert complete.json()["followed_artists"] == ["Followed Artist"]
