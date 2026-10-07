@@ -12,6 +12,7 @@ import io
 import logging
 import os
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
-from starlette.requests import ClientDisconnect
+from starlette.requests import ClientDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 
 from .artists import build_artists
@@ -37,6 +38,7 @@ from .config import (
     ROOT,
     USER_AGENT,
 )
+from .error_logging import configure_error_logging
 from .censorship_detector import detect_suspects
 from .covers import fetch_cover_report, proxy_cover
 from .index_store import IndexStore
@@ -66,6 +68,7 @@ COVERS_DIR.mkdir(parents=True, exist_ok=True)
 EMBEDDED_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("OLLAMA_NUM_GPU", "1")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+configure_error_logging(CACHE_DIR / "errors.log")
 logging.getLogger("kadr").setLevel(logging.INFO)
 logging.getLogger("kadr.covers").setLevel(logging.INFO)
 logging.getLogger("kadr.lyrics").setLevel(logging.INFO)
@@ -125,6 +128,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(sqlite3.OperationalError)
+async def _sqlite_error(_request: Request, exc: sqlite3.OperationalError) -> JSONResponse:
+    logging.getLogger("kadr.errors").exception("SQLite operation failed")
+    if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "База данных занята, повторите запрос"},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Не удалось выполнить операцию с базой данных"},
+    )
+
+
+@app.exception_handler(Exception)
+async def _unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    logging.getLogger("kadr.errors").exception(
+        "Unhandled error for %s %s", request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Внутренняя ошибка сервера; подробности в cache/errors.log"},
+    )
+
 
 cache = CacheStore()
 track_index = IndexStore()

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import httpx
 import pytest
 
 from backend import releases
@@ -85,3 +86,24 @@ async def test_weekly_releases_separate_singles_and_albums_and_filter_library(
     assert result["tracks"][0]["preview"].endswith("new.mp3")
     assert [item["title"] for item in result["albums"]] == ["New Album"]
     assert all("id" not in item for item in result["albums"])
+
+
+@pytest.mark.asyncio
+async def test_weekly_releases_degrade_when_deezer_is_unavailable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class DownClient:
+        async def get(self, *_args: Any, **_kwargs: Any) -> httpx.Response:
+            request = httpx.Request("GET", "https://api.deezer.com/search/artist")
+            raise httpx.ConnectError("offline", request=request)
+
+    result = await releases.fetch_weekly_releases(
+        DownClient(),  # type: ignore[arg-type]
+        ["Artist"],
+    )
+
+    assert result["tracks"] == []
+    assert result["albums"] == []
+    assert len(result["errors"]) == 1
+    assert "Artist" in result["errors"][0]
+    assert any(record.name == "kadr.deezer" for record in caplog.records)

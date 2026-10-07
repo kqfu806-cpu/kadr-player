@@ -91,7 +91,7 @@ async def _download(client: httpx.AsyncClient, url: str, dest: Path) -> Path | N
         dest.write_bytes(r.content)
         return dest
     except Exception as exc:
-        log.info("cover download fail %s: %s", url[:80], exc)
+        log.warning("cover download fail %s: %s", url[:80], type(exc).__name__)
         return None
 
 
@@ -115,14 +115,15 @@ async def search_deezer(
                 timeout=COVER_TIMEOUT,
             )
             last = str(r.status_code)
-            log.info("deezer %r -> %s", q[:60], r.status_code)
+            log_method = log.warning if r.status_code == 429 or r.status_code >= 500 else log.info
+            log_method("deezer %r -> %s", q[:60], r.status_code)
             if r.status_code >= 400:
                 log.info("deezer body %s", r.text[:180])
                 continue
             results = r.json().get("data") or []
         except Exception as exc:
             last = "err"
-            log.info("deezer fail: %s", exc)
+            log.warning("deezer fail: %s", type(exc).__name__)
             continue
         for item in results:
             alb = item.get("album") or {}
@@ -325,7 +326,7 @@ async def fetch_cover_report(
             else:
                 url, code = got, "200"
         except Exception as ext:
-            log.info("cover source %s exc: %s", name, ext)
+            log.warning("cover source %s exc: %s", name, type(ext).__name__)
             url, code = None, "err"
         if code in {"503", "429"}:
             code = "skip"
@@ -396,10 +397,11 @@ async def proxy_cover(
             follow_redirects=True,
         )
     except Exception as exc:
-        log.info("cover-proxy fail %s: %s", url[:80], exc)
+        log.warning("cover-proxy fail %s: %s", url[:80], type(exc).__name__)
         return None
     if r.status_code >= 400 or not r.content or len(r.content) < 200:
-        log.info("cover-proxy %s -> %s", url[:80], r.status_code)
+        log_method = log.warning if r.status_code == 429 or r.status_code >= 500 else log.info
+        log_method("cover-proxy %s -> %s", url[:80], r.status_code)
         return None
     ctype = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
     if "html" in ctype or "json" in ctype:

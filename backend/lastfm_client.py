@@ -17,6 +17,7 @@ from .lastfm_config import get_lastfm_api_key
 
 API_URL = "https://ws.audioscrobbler.com/2.0/"
 CACHE_TTL_SECONDS = 24 * 60 * 60
+STALE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 MIN_REQUEST_INTERVAL = 0.2
 
 
@@ -150,9 +151,13 @@ class LastFmClient:
         cached = self._read_cache(cache_path)
         if cached is not None:
             return cached
+        stale_cached = self._read_cache(cache_path, STALE_CACHE_TTL_SECONDS)
 
         api_key = self.api_key or get_lastfm_api_key()
         if not api_key:
+            if stale_cached is not None:
+                self.log.warning("Using stale Last.fm cache without an API key for %s", method)
+                return stale_cached
             raise LastFmConfigurationError("LASTFM_API_KEY is required for an uncached request")
 
         request_params: dict[str, str | int] = {
@@ -177,9 +182,25 @@ class LastFmClient:
                     self.log.warning("Last.fm rate limited request; retrying in %.1f seconds", wait_seconds)
                     await asyncio.sleep(wait_seconds)
                     continue
+                if stale_cached is not None and (
+                    exc.response.status_code == 429 or exc.response.status_code >= 500
+                ):
+                    self.log.warning(
+                        "Using stale Last.fm cache after HTTP %s for %s",
+                        exc.response.status_code,
+                        method,
+                    )
+                    return stale_cached
                 self.log.error("Last.fm HTTP request failed: %s", exc)
                 raise LastFmApiError(f"Last.fm HTTP error: {exc.response.status_code}") from exc
             except (httpx.HTTPError, ValueError) as exc:
+                if stale_cached is not None:
+                    self.log.warning(
+                        "Using stale Last.fm cache after request failure for %s: %s",
+                        method,
+                        type(exc).__name__,
+                    )
+                    return stale_cached
                 self.log.error("Last.fm request failed: %s", exc)
                 raise LastFmApiError(f"Last.fm request failed: {exc}") from exc
 
@@ -223,7 +244,9 @@ class LastFmClient:
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
         return self.cache_dir / f"{digest}.json"
 
-    def _read_cache(self, path: Path) -> dict[str, Any] | None:
+    def _read_cache(
+        self, path: Path, max_age_seconds: int = CACHE_TTL_SECONDS
+    ) -> dict[str, Any] | None:
         try:
             entry = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -238,7 +261,7 @@ class LastFmClient:
         ):
             self.log.warning("Ignoring malformed Last.fm cache %s", path)
             return None
-        if time.time() - entry["cached_at"] >= CACHE_TTL_SECONDS:
+        if time.time() - entry["cached_at"] >= max_age_seconds:
             return None
         return entry["payload"]
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import unicodedata
 from datetime import date, timedelta
@@ -14,6 +15,7 @@ import httpx
 API = "https://api.deezer.com"
 MAX_FOLLOWED_ARTISTS = 12
 MAX_RELEASES_PER_ARTIST = 50
+log = logging.getLogger("kadr.deezer")
 
 
 def _normalize(value: str) -> str:
@@ -55,7 +57,8 @@ async def _artist_releases(
             )
             albums_response.raise_for_status()
             albums = albums_response.json().get("data") or []
-        except Exception:
+        except Exception as exc:
+            log.warning("Deezer release lookup failed for %s: %s", name, type(exc).__name__)
             return [], f"Не удалось проверить релизы: {name}"
 
     releases: list[dict[str, Any]] = []
@@ -102,7 +105,12 @@ async def _single_tracks(
             )
             response.raise_for_status()
             data = response.json().get("data") or []
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, ValueError) as exc:
+            log.warning(
+                "Deezer track lookup failed for release %s: %s",
+                release["id"],
+                type(exc).__name__,
+            )
             return []
     rows: list[dict[str, Any]] = []
     for track in data:

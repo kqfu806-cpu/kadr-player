@@ -66,6 +66,48 @@ async def test_client_uses_fresh_cache_without_api_key(tmp_path) -> None:
     assert await second.get_similar_artists("Artist") == result
 
 
+@pytest.mark.asyncio
+async def test_client_uses_stale_cache_after_rate_limit(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    import time
+
+    import backend.lastfm_client as lastfm_module
+
+    monkeypatch.setattr(lastfm_module, "MIN_REQUEST_INTERVAL", 0.0)
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(lastfm_module.asyncio, "sleep", no_wait)
+    client_calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal client_calls
+        client_calls += 1
+        return httpx.Response(429)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        lastfm = LastFmClient(client=client, cache_dir=tmp_path, api_key="test-key")
+        cache_path = lastfm._cache_path("artist.getSimilar", {"artist": "Artist", "limit": 20})
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "cached_at": time.time() - lastfm_module.CACHE_TTL_SECONDS - 10,
+                    "payload": {"similarartists": {"artist": [{"name": "Cached artist"}]}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = await lastfm.get_similar_artists("Artist")
+
+    assert result == [{"name": "Cached artist"}]
+    assert client_calls == 3
+
+
 def test_api_key_is_read_from_env_file(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
