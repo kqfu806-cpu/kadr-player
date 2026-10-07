@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import time
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,12 +22,28 @@ from .scanner import Track
 from .wave import _listening_data, cosine_similarity, load_embeddings
 
 CACHE_PATH = ROOT / ".tools" / "weekly_cache.json"
+DEBUG_LOG_PATH = ROOT / ".tools" / "weekly_debug.log"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_SEED_ARTISTS = 6
 MAX_SIMILAR_ARTISTS = 8
 MAX_EMBEDDING_CANDIDATES = 40
 _cache_lock = asyncio.Lock()
 log = logging.getLogger("kadr.weekly")
+try:
+    DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not any(
+        isinstance(handler, logging.FileHandler)
+        and Path(handler.baseFilename) == DEBUG_LOG_PATH.resolve()
+        for handler in log.handlers
+    ):
+        debug_handler = logging.FileHandler(DEBUG_LOG_PATH, encoding="utf-8")
+        debug_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        )
+        log.addHandler(debug_handler)
+    log.setLevel(logging.INFO)
+except OSError:
+    log.exception("Could not configure weekly debug log at %s", DEBUG_LOG_PATH)
 
 
 def _normalize(value: str) -> str:
@@ -45,7 +62,7 @@ def _signature(tracks: list[Track], extra_artists: list[str] | None = None) -> s
     return hashlib.sha256(
         json.dumps(
             [
-                "weekly-v2",
+                "weekly-v3",
                 local,
                 sorted(
                     {
@@ -285,6 +302,41 @@ def _rank_items(
     return ranked
 
 
+def _release_window(releases: dict[str, Any]) -> int:
+    items = releases.get("tracks", []) + releases.get("albums", [])
+    dates: list[date] = []
+    for item in items:
+        try:
+            dates.append(date.fromisoformat(str(item.get("date", ""))[:10]))
+        except (TypeError, ValueError):
+            continue
+    today = date.today()
+    if any(today - timedelta(days=7) <= released <= today for released in dates):
+        return 7
+    if any(today - timedelta(days=14) <= released <= today for released in dates):
+        return 14
+    return 30
+
+
+def _filter_release_window(
+    releases: dict[str, Any], window_days: int
+) -> dict[str, Any]:
+    cutoff = date.today() - timedelta(days=window_days)
+    filtered = {**releases}
+    for section in ("tracks", "albums"):
+        items = []
+        for item in releases.get(section, []):
+            try:
+                released = date.fromisoformat(str(item.get("date", ""))[:10])
+            except (TypeError, ValueError):
+                continue
+            if cutoff <= released <= date.today():
+                items.append(item)
+        filtered[section] = items
+    filtered["window_days"] = window_days
+    return filtered
+
+
 async def get_weekly(
     client: httpx.AsyncClient,
     lastfm: LastFmClient,
@@ -298,6 +350,17 @@ async def get_weekly(
         if not force:
             cached = _read_cache(signature)
             if cached is not None:
+                cached.setdefault("library_artists", len(_library_artist_counts(tracks)))
+                cached.setdefault(
+                    "artists_checked",
+                    cached.get("checked", len(_library_artist_counts(tracks))),
+                )
+                log.info(
+                    "Weekly cache hit: artists=%d releases=%d window_days=%s",
+                    len(_library_artist_counts(tracks)),
+                    len(cached.get("tracks", [])) + len(cached.get("albums", [])),
+                    cached.get("window_days", 7),
+                )
                 return cached
 
         artists, affinity, warnings = await _artist_seeds(tracks, lastfm)
@@ -316,24 +379,34 @@ async def get_weekly(
             }
             return data
 
+        log.info(
+            "Weekly lookup started: library_artists=%d artists_to_check=%d",
+            len(_library_artist_counts(tracks)),
+            len(artists),
+        )
         taste_tracks = await _lastfm_taste_tracks(lastfm, artists[:MAX_SEED_ARTISTS], warnings)
         local_tracks = [
             {"artist": track.artist, "title": track.title, "album": track.album}
             for track in tracks
         ]
-        releases: dict[str, Any] = {"tracks": [], "albums": [], "errors": []}
-        for days in (7, 14, 30):
-            try:
-                releases = await fetch_weekly_releases(
-                    client, artists, days=days, local_tracks=local_tracks
-                )
-            except (httpx.HTTPError, ValueError) as exc:
-                log.exception("Weekly Deezer release lookup failed")
-                warnings.append(f"Deezer unavailable: {type(exc).__name__}")
-                releases = {"tracks": [], "albums": [], "errors": []}
-            if releases.get("tracks") or releases.get("albums") or days == 30:
-                releases["window_days"] = days
-                break
+        try:
+            releases = await fetch_weekly_releases(
+                client, artists, days=30, local_tracks=local_tracks
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            log.exception("Weekly Deezer release lookup failed")
+            warnings.append(f"Deezer unavailable: {type(exc).__name__}")
+            releases = {"tracks": [], "albums": [], "errors": [], "checked": 0}
+        window_days = _release_window(releases)
+        releases = _filter_release_window(releases, window_days)
+        found = len(releases.get("tracks", [])) + len(releases.get("albums", []))
+        log.info(
+            "Weekly window checked: days=%d artists=%d releases=%d api_errors=%s",
+            window_days,
+            releases.get("checked", len(artists)),
+            found,
+            releases.get("errors", []),
+        )
         warnings.extend(str(error) for error in releases.get("errors", []))
         new_tracks = [
             item
@@ -349,10 +422,20 @@ async def get_weekly(
             "source": "Deezer + Last.fm",
             "from": releases.get("from"),
             "to": releases.get("to"),
-            "window_days": releases.get("window_days", 30),
+            "window_days": window_days,
+            "library_artists": len(_library_artist_counts(tracks)),
+            "artists_checked": releases.get("checked", len(artists)),
             "tracks": _rank_items(new_tracks, affinity, taste_tracks, embedding_scores),
             "albums": _rank_items(albums, affinity, taste_tracks, embedding_scores),
             "warnings": list(dict.fromkeys(warnings)),
         }
+        log.info(
+            "Weekly lookup complete: library_artists=%d artists_checked=%d releases=%d window_days=%d api_errors=%s",
+            len(_library_artist_counts(tracks)),
+            releases.get("checked", len(artists)),
+            len(data["tracks"]) + len(data["albums"]),
+            data["window_days"],
+            releases.get("errors", []),
+        )
         _write_cache(signature, data)
         return data

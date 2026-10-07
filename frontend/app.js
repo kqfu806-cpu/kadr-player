@@ -3248,22 +3248,27 @@
     renderWeeklyItems();
   }
 
+  function weeklyWindowLabel(data) {
+    const days = Number(data && data.window_days) || 7;
+    if (days > 14) return `За последние ${days} дней (7 и 14 дней — пусто)`;
+    if (days > 7) return `За последние ${days} дней (7 дней — пусто)`;
+    return "За последние 7 дней";
+  }
+
   function renderWeeklyItems(data) {
     const host = $("weeklyCards");
     if (!host) return;
     const weeklyData = data || state.weeklyData || {};
     const items = weeklyData[state.weeklyTab] || [];
     if (!items.length) {
-      host.innerHTML = `<p class="weekly-empty">${esc(weeklyData.warnings?.[0] || "Новых релизов за последние 7 дней не найдено.")}</p>`;
+      const otherItems = weeklyData[state.weeklyTab === "tracks" ? "albums" : "tracks"] || [];
+      const emptyMessage = otherItems.length
+        ? `В этом разделе новинок нет — проверьте вкладку «${state.weeklyTab === "tracks" ? "Альбомы" : "Треки"}».`
+        : weeklyData.warnings?.[0] || "Новых релизов за выбранный период не найдено.";
+      host.innerHTML = `<p class="weekly-empty">${esc(emptyMessage)}</p>`;
       return;
     }
 
-    function weeklyWindowLabel(data) {
-      const days = Number(data && data.window_days) || 7;
-      if (days > 14) return `За последние ${days} дней (7 и 14 дней — пусто)`;
-      if (days > 7) return `За последние ${days} дней (7 дней — пусто)`;
-      return "За последние 7 дней";
-    }
     host.innerHTML = items.map((item) => {
       const key = weeklyKey(item);
       const saved = weeklySaved.has(key);
@@ -3306,8 +3311,11 @@
         : await api(`/api/weekly${queryString ? `?${queryString}` : ""}`);
       state.weeklyData = data;
       const count = (data.tracks || []).length + (data.albums || []).length;
-      const warning = data.warnings?.[0];
-      if (status) status.textContent = warning || `${count} релизов · ${weeklyWindowLabel(data)} · ${data.source || "каталог"}`;
+      const errors = data.warnings?.length || 0;
+      const checkedArtists = Number(data.artists_checked) || 0;
+      const checkedLabel = checkedArtists ? ` · проверено ${checkedArtists} артистов` : "";
+      const errorsLabel = errors ? ` · ошибок источника: ${errors}` : "";
+      if (status) status.textContent = `${count} релизов · ${weeklyWindowLabel(data)}${checkedLabel}${errorsLabel} · ${data.source || "каталог"}`;
       renderWeeklyItems(data);
     } catch (error) {
       state.weeklyData = {
