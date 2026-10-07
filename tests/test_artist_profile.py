@@ -164,3 +164,10 @@ def test_artist_profile_rejects_lastfm_errors(
 
     assert response.status_code == 503
     assert response.json()["detail"] == "LASTFM_API_KEY is required"
+
+
+def test_artist_profile_accepts_slashes_in_artist_name(client: TestClient) -> None:
+    response = client.get("/api/artist/AC%2FDC")
+
+    assert response.status_code == 200
+    assert response.json()["artist"] == "AC/DC"

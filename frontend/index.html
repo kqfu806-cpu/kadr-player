@@ -18,7 +18,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=11" />
+  <link rel="stylesheet" href="/static/styles.css?v=12" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -55,6 +55,7 @@
         <button type="button" class="btn ghost" id="btnTheme" title="Тема" aria-label="Тема">☾</button>
         <button class="btn ghost" id="btnRefresh" title="Пересканировать клипы и обложки">Обновить клипы</button>
         <button class="btn ghost" id="btnQuality" title="Проверить качество библиотеки">Качество</button>
+        <button class="btn ghost" id="btnStats" type="button">Статистика</button>
         <div class="status-pill" id="ollamaPill" title="Состояние Ollama">
           <span class="dot"></span>
           <span class="lbl">Ollama…</span>
@@ -138,6 +139,50 @@
               <span class="muted" id="profileStatus"></span>
             </header>
             <div id="profileContent"></div>
+          </section>
+
+          <section class="listening-stats hidden" id="listeningStats" aria-live="polite">
+            <header class="profile-toolbar">
+              <button class="btn ghost" id="statsBack" type="button">← К плееру</button>
+              <span class="muted" id="statsStatus">Загружаю статистику…</span>
+              <label class="stats-period-label" for="statsPeriod">Топ за</label>
+              <select class="stats-period" id="statsPeriod">
+                <option value="day">день</option>
+                <option value="week">неделю</option>
+                <option value="month">месяц</option>
+                <option value="all" selected>всё время</option>
+              </select>
+              <a class="btn ghost stats-export" href="/api/stats/export.csv">Экспорт CSV</a>
+            </header>
+            <div class="stats-cards">
+              <article class="stats-card"><span>Сегодня</span><strong id="statsDay">—</strong><small id="statsDayTime">—</small></article>
+              <article class="stats-card"><span>Эта неделя</span><strong id="statsWeek">—</strong><small id="statsWeekTime">—</small></article>
+              <article class="stats-card"><span>Этот месяц</span><strong id="statsMonth">—</strong><small id="statsMonthTime">—</small></article>
+              <article class="stats-card"><span>Всё время</span><strong id="statsAll">—</strong><small id="statsAllTime">—</small></article>
+            </div>
+            <div class="stats-grid">
+              <section class="stats-panel stats-activity">
+                <h2>Активность · 30 дней</h2>
+                <canvas id="statsTimeline" height="220" aria-label="График прослушиваний по дням"></canvas>
+                <div class="stats-axis-label">Часовая активность (UTC)</div>
+                <div class="stats-hours" id="statsHours"></div>
+              </section>
+              <section class="stats-panel">
+                <h2>Топ исполнителей</h2>
+                <ol class="stats-list" id="statsArtists"></ol>
+              </section>
+              <section class="stats-panel">
+                <h2>Топ треков</h2>
+                <ol class="stats-list" id="statsTracks"></ol>
+              </section>
+              <section class="stats-panel">
+                <h2>Жанры · Last.fm</h2>
+                <div class="stats-genres">
+                  <div class="stats-donut" id="statsDonut" role="img" aria-label="Диаграмма жанров"></div>
+                  <ul class="stats-legend" id="statsGenres"></ul>
+                </div>
+              </section>
+            </div>
           </section>
 
           <div class="media-layer hidden" id="mediaLayer">
@@ -296,6 +341,6 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/static/vendor/anime.js"></script>
-  <script src="/static/app.js?v=13"></script>
+  <script src="/static/app.js?v=14"></script>
 </body>
 </html>

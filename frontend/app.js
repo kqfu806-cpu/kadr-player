@@ -57,6 +57,7 @@
     collapsed: false,
     virtRaf: 0,
     playGen: 0,
+    playSession: null,
     lyricPauseUntil: 0,
     coverScrollLock: false,
     coverScrollTimer: 0,
@@ -502,7 +503,12 @@
 
   // ---------- воспроизведение ----------
   function setPlaying(v) {
+    if (state.playing && !v) {
+      samplePlaySession();
+      finishPlaySession();
+    }
     state.playing = v;
+    if (v) ensurePlaySession();
     $("iconPlay").classList.toggle("hidden", v);
     $("iconPause").classList.toggle("hidden", !v);
     const vinyl = $("vinyl");
@@ -521,6 +527,10 @@
 
   async function playIndex(i) {
     if (i < 0 || i >= state.tracks.length) return;
+    if (state.playSession && state.playSession.trackId !== state.tracks[i].id) {
+      samplePlaySession();
+      finishPlaySession();
+    }
     const gen = ++state.playGen;
     state.index = i;
     const t = state.tracks[i];
@@ -693,6 +703,66 @@
     return state.tracks[state.index] || null;
   }
 
+  function newSessionId() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function ensurePlaySession() {
+    const track = currentTrack();
+    if (!track || (state.playSession && state.playSession.trackId === track.id)) return;
+    state.playSession = {
+      trackId: track.id,
+      sessionId: newSessionId(),
+      duration: 0,
+      lastPosition: getPosition(),
+      lastWall: performance.now(),
+      persisted: false,
+    };
+  }
+
+  function samplePlaySession() {
+    const session = state.playSession;
+    if (!session || !state.playing) return;
+    const now = performance.now();
+    const position = getPosition();
+    const wallDelta = Math.max(0, (now - session.lastWall) / 1000);
+    const positionDelta = position - session.lastPosition;
+    if (positionDelta > 0 && positionDelta <= wallDelta + 2.5) {
+      session.duration += Math.min(positionDelta, wallDelta + 0.25);
+    }
+    session.lastPosition = position;
+    session.lastWall = now;
+    if (session.duration > 30 && !session.persisted) {
+      session.persisted = true;
+      persistPlaySession(session);
+    }
+  }
+
+  async function persistPlaySession(session) {
+    const track = state.tracks.find((item) => item.id === session.trackId);
+    if (!track || session.duration <= 30) return;
+    try {
+      await api("/api/stats/play", {
+        method: "POST",
+        body: JSON.stringify({
+          track_id: session.trackId,
+          session_id: session.sessionId,
+          duration: Math.floor(session.duration * 10) / 10,
+        }),
+      });
+    } catch (error) {
+      console.warn("Listening statistics could not be saved:", error.message);
+    }
+  }
+
+  function finishPlaySession() {
+    const session = state.playSession;
+    if (!session) return;
+    if (session.duration > 30) persistPlaySession(session);
+    state.playSession = null;
+  }
+
   function syncFavoriteControls() {
     const track = currentTrack();
     const favorite = !!track && state.favorites.has(track.id);
@@ -858,6 +928,7 @@
   function tick() {
     const d = getDuration();
     const p = getPosition();
+    samplePlaySession();
     if (!state.seeking && d) {
       const v = String(Math.round((p / d) * 1000));
       seek.value = v;
@@ -2405,6 +2476,162 @@
       if (status) status.textContent = "Не удалось загрузить артистов";
     }
   }
+
+  const statsColors = ["#c7ad82", "#829fc7", "#8cb58c", "#bd8abc", "#d78572", "#6fb9b1", "#a9a0d8", "#d6c66a", "#8ea3a5", "#d28da3", "#92ad69", "#d19b67"];
+
+  function renderStatsSummary(data) {
+    for (const period of ["day", "week", "month", "all"]) {
+      const item = data[period] || { tracks: 0, minutes: 0 };
+      $(`stats${period[0].toUpperCase()}${period.slice(1)}`).textContent = `${item.tracks} треков`;
+      $(`stats${period[0].toUpperCase()}${period.slice(1)}Time`).textContent = `${item.minutes} мин`;
+    }
+  }
+
+  function renderStatsTop(data) {
+    const renderList = (items, kind) => items.length
+      ? items.map((item) => {
+        const title = kind === "tracks" ? item.title : item.artist;
+        const byline = kind === "tracks" ? item.artist : `${item.plays} прослушиваний`;
+        return `<li><strong>${esc(title || "Без названия")}</strong><small>${esc(byline)} · ${item.plays} раз · ${item.minutes} мин</small></li>`;
+      }).join("")
+      : `<li class="stats-empty">Пока нет прослушиваний.</li>`;
+    $("statsArtists").innerHTML = renderList(data.artists || [], "artists");
+    $("statsTracks").innerHTML = renderList(data.tracks || [], "tracks");
+  }
+
+  function renderStatsTimeline(data) {
+    const canvas = $("statsTimeline");
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.floor(bounds.width * ratio));
+    canvas.height = Math.max(1, Math.floor(bounds.height * ratio));
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    const width = bounds.width;
+    const height = bounds.height;
+    const points = data.days || [];
+    const values = points.map((point) => point.plays);
+    const max = Math.max(1, ...values);
+    const left = 26, right = 8, top = 12, bottom = 25;
+    const chartWidth = width - left - right;
+    const chartHeight = height - top - bottom;
+    ctx.font = "11px system-ui";
+    ctx.textBaseline = "middle";
+    const muted = getComputedStyle(document.documentElement).getPropertyValue("--muted").trim() || "#888";
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--stroke").trim() || "rgba(255,255,255,.2)";
+    ctx.fillStyle = muted;
+    ctx.lineWidth = 1;
+    for (let row = 0; row <= 3; row++) {
+      const y = top + chartHeight * row / 3;
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(width - right, y);
+      ctx.stroke();
+      ctx.textAlign = "right";
+      const tick = max * (3 - row) / 3;
+      ctx.fillText(Number.isInteger(tick) ? String(tick) : tick.toFixed(1), left - 5, y);
+    }
+    if (!values.some(Boolean)) {
+      ctx.textAlign = "center";
+      ctx.fillText("Прослушиваний пока нет", width / 2, height / 2);
+    } else {
+      ctx.strokeStyle = "#c7ad82";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      values.forEach((value, index) => {
+        const x = left + (values.length <= 1 ? 0 : chartWidth * index / (values.length - 1));
+        const y = top + chartHeight * (1 - value / max);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = "#c7ad82";
+      values.forEach((value, index) => {
+        if (!value) return;
+        const x = left + (values.length <= 1 ? 0 : chartWidth * index / (values.length - 1));
+        const y = top + chartHeight * (1 - value / max);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    ctx.fillStyle = muted;
+    ctx.textAlign = "left";
+    if (points.length) ctx.fillText(points[0].date.slice(5), left, height - 8);
+    ctx.textAlign = "right";
+    if (points.length) ctx.fillText(points[points.length - 1].date.slice(5), width - right, height - 8);
+
+    const hours = data.hours || [];
+    const maximumHour = Math.max(1, ...hours.map((hour) => hour.plays));
+    $("statsHours").innerHTML = hours.map((hour) =>
+      `<i class="stats-hour" style="height:${Math.max(2, Math.round(36 * hour.plays / maximumHour))}px" ` +
+      `title="${String(hour.hour).padStart(2, "0")}:00 UTC · ${hour.plays} треков"></i>`).join("");
+  }
+
+  function renderStatsGenres(data) {
+    const items = data.genres || [];
+    const total = items.reduce((sum, item) => sum + item.weight, 0);
+    const donut = $("statsDonut");
+    const legend = $("statsGenres");
+    if (!items.length || !total) {
+      donut.style.background = "conic-gradient(var(--stroke) 0 100%)";
+      legend.innerHTML = `<li class="stats-empty">${esc((data.warnings || [])[0] || "Жанры появятся с историей прослушиваний.")}</li>`;
+      return;
+    }
+    let progress = 0;
+    const stops = items.map((item, index) => {
+      const start = progress;
+      progress += item.weight / total * 100;
+      return `${statsColors[index % statsColors.length]} ${start.toFixed(2)}% ${progress.toFixed(2)}%`;
+    });
+    donut.style.background = `conic-gradient(${stops.join(",")})`;
+    donut.setAttribute("aria-label", `Жанры: ${items.map((item) => item.name).join(", ")}`);
+    legend.innerHTML = items.map((item, index) =>
+      `<li><i style="background:${statsColors[index % statsColors.length]}"></i><span>${esc(item.name)} · ${item.artists} исполн.</span></li>`).join("");
+    if (data.warnings && data.warnings.length) {
+      legend.insertAdjacentHTML("beforeend", `<li class="stats-empty">${esc(data.warnings[0])}</li>`);
+    }
+  }
+
+  async function loadStats() {
+    $("statsStatus").textContent = "Загружаю статистику…";
+    try {
+      const period = $("statsPeriod").value;
+      const [summary, top, timeline, genres] = await Promise.all([
+        api("/api/stats/summary"),
+        api(`/api/stats/top?period=${encodeURIComponent(period)}`),
+        api("/api/stats/timeline?days=30"),
+        api("/api/stats/genres"),
+      ]);
+      renderStatsSummary(summary);
+      renderStatsTop(top);
+      renderStatsTimeline(timeline);
+      renderStatsGenres(genres);
+      $("statsStatus").textContent = `${summary.all.tracks} подтверждённых прослушиваний · время UTC`;
+    } catch (error) {
+      $("statsStatus").textContent = `Не удалось загрузить статистику: ${error.message}`;
+    }
+  }
+
+  function openStats() {
+    $("welcome").classList.add("hidden");
+    $("mediaLayer").classList.add("hidden");
+    $("artistProfile").classList.add("hidden");
+    $("listeningStats").classList.remove("hidden");
+    loadStats();
+  }
+
+  $("btnStats")?.addEventListener("click", openStats);
+  $("statsBack")?.addEventListener("click", () => {
+    $("listeningStats").classList.add("hidden");
+    showWelcome(!currentTrack());
+  });
+  $("statsPeriod")?.addEventListener("change", () => {
+    api(`/api/stats/top?period=${encodeURIComponent($("statsPeriod").value)}`)
+      .then(renderStatsTop)
+      .catch((error) => { $("statsStatus").textContent = `Не удалось обновить топ: ${error.message}`; });
+  });
 
   function profileSource(url) {
     try {

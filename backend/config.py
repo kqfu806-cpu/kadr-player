@@ -12,6 +12,7 @@ EMBEDDED_DIR = CACHE_DIR / "embedded"
 LYRICS_DIR = CACHE_DIR / "lyrics"
 MATCHES_PATH = CACHE_DIR / "matches.json"
 INDEX_PATH = CACHE_DIR / "index.json"
+STATS_DB_PATH = CACHE_DIR / "stats.sqlite3"
 LOG_DIR = CACHE_DIR / "logs"
 
 HOST = "127.0.0.1"

@@ -6,7 +6,9 @@ Backend: FastAPI. Все ИИ-запросы только на http://127.0.0.1:
 from __future__ import annotations
 
 import asyncio
+import csv
 import html
+import io
 import logging
 import os
 import re
@@ -45,6 +47,7 @@ from .ollama_ai import OllamaClient
 from .placeholder import generate_placeholder
 from .releases import fetch_weekly_releases
 from .scanner import Track, read_track, scan_folder
+from . import stats as listening_stats
 from .uncensored_finder import find_candidates
 from .uncensored_replacer import replace_track
 
@@ -331,7 +334,7 @@ async def api_lastfm_info(artist: str) -> dict[str, Any]:
     return {"artist": info}
 
 
-@app.get("/api/artist/{name}")
+@app.get("/api/artist/{name:path}")
 async def api_artist_profile(name: str) -> dict[str, Any]:
     name = name.strip()
     if not name:
@@ -435,6 +438,116 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
         "warnings": [release_error] if release_error else [],
         "sources": {"lastfm": "Last.fm", "musicbrainz": "MusicBrainz"},
     }
+
+
+@app.post("/api/stats/play")
+async def api_record_play(body: dict[str, Any]) -> dict[str, Any]:
+    track_id = str(body.get("track_id") or "").strip()
+    track = library.get(track_id)
+    if track is None:
+        raise HTTPException(404, "Трек не найден в текущей библиотеке")
+    try:
+        duration = float(body.get("duration"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Некорректная длительность прослушивания")
+    if not 30 < duration <= 24 * 60 * 60:
+        raise HTTPException(400, "Прослушивание должно быть больше 30 секунд")
+    session_id = str(body.get("session_id") or "").strip()
+    if not 1 <= len(session_id) <= 100:
+        raise HTTPException(400, "Некорректный session_id")
+    try:
+        play = listening_stats.record_play(
+            track.id,
+            session_id,
+            duration,
+            track.artist,
+            track.title,
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "play": play}
+
+
+@app.get("/api/stats/summary")
+async def api_stats_summary() -> dict[str, Any]:
+    return listening_stats.summary()
+
+
+@app.get("/api/stats/top")
+async def api_stats_top(
+    period: str = Query(default="all", pattern="^(day|week|month|all)$")
+) -> dict[str, Any]:
+    return listening_stats.top(period)
+
+
+@app.get("/api/stats/timeline")
+async def api_stats_timeline(
+    days: int = Query(default=30, ge=1, le=365)
+) -> dict[str, Any]:
+    return listening_stats.timeline(days)
+
+
+@app.get("/api/stats/genres")
+async def api_stats_genres() -> dict[str, Any]:
+    artists = listening_stats.genre_artists()
+    if not artists:
+        return {"genres": [], "warnings": ["Недостаточно истории прослушиваний"]}
+    totals: dict[str, float] = {}
+    genre_artists_map: dict[str, set[str]] = {}
+    warnings = []
+    for item in artists:
+        try:
+            tags = await lastfm_client.get_artist_top_tags(item["artist"], 10)
+        except LastFmConfigurationError:
+            warnings.append("Для жанров Last.fm задайте LASTFM_API_KEY")
+            break
+        except LastFmError as exc:
+            logging.getLogger("kadr.stats").warning(
+                "Last.fm tags unavailable for %s: %s", item["artist"], exc
+            )
+            continue
+        for tag in tags:
+            name = str(tag.get("name") or "").strip()
+            if not name:
+                continue
+            try:
+                tag_weight = max(1, int(tag.get("count") or 1))
+            except (TypeError, ValueError):
+                tag_weight = 1
+            weight = item["seconds"] * tag_weight
+            totals[name] = totals.get(name, 0.0) + weight
+            genre_artists_map.setdefault(name, set()).add(item["artist"])
+    genres = [
+        {"name": name, "weight": round(weight, 2), "artists": len(genre_artists_map[name])}
+        for name, weight in sorted(totals.items(), key=lambda entry: entry[1], reverse=True)[:12]
+    ]
+    return {"genres": genres, "warnings": warnings}
+
+
+@app.get("/api/stats/export.csv")
+async def api_stats_export_csv() -> Response:
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["track_id", "timestamp_utc", "duration_seconds", "artist", "title"])
+    for play in listening_stats.csv_rows():
+        values = [
+            play["track_id"],
+            play["timestamp"],
+            play["duration"],
+            play["artist"],
+            play["title"],
+        ]
+        writer.writerow(
+            [
+                "'" + value if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t")) else value
+                for value in values
+            ]
+        )
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="kadr-listening-stats.csv"'},
+    )
 
 
 @app.post("/api/new-releases")
