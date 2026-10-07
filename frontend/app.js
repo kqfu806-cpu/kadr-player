@@ -58,6 +58,11 @@
     virtRaf: 0,
     playGen: 0,
     playSession: null,
+    waveMode: false,
+    waveQueue: [],
+    waveSeen: new Set(),
+    waveReason: "",
+    waveLoading: false,
     lyricPauseUntil: 0,
     coverScrollLock: false,
     coverScrollTimer: 0,
@@ -525,8 +530,12 @@
     $("mediaLayer").classList.toggle("hidden", on);
   }
 
-  async function playIndex(i) {
+  async function playIndex(i, fromWave) {
     if (i < 0 || i >= state.tracks.length) return;
+    if (state.waveMode && !fromWave) {
+      sendWaveSignal("skip");
+      setWaveMode(false);
+    }
     if (state.playSession && state.playSession.trackId !== state.tracks[i].id) {
       samplePlaySession();
       finishPlaySession();
@@ -545,6 +554,7 @@
     if (fsTitle) fsTitle.textContent = t.title;
     if (fsArtist) fsArtist.textContent = t.artist;
     $("nowAlbum").textContent = [t.album, t.year].filter(Boolean).join(" · ");
+    $("waveReason").textContent = fromWave ? state.waveReason : "";
     $("nowReason").textContent = "";
     document.title = `${t.artist} — ${t.title} · Курымдык`;
     updateNowPlaying();
@@ -774,6 +784,8 @@
       button.title = favorite ? "Убрать из избранного" : "В избранное";
       button.setAttribute("aria-label", button.title);
     }
+    const dislike = $("btnDislike");
+    if (dislike) dislike.disabled = !track;
     const filter = $("btnFavoritesFilter");
     if (filter) {
       filter.classList.toggle("on", state.favoritesOnly);
@@ -788,6 +800,7 @@
     if (!track) return;
     if (state.favorites.has(track.id)) state.favorites.delete(track.id);
     else state.favorites.add(track.id);
+    if (state.favorites.has(track.id)) sendWaveSignal("like");
     try { localStorage.setItem(favoritesKey, JSON.stringify([...state.favorites])); } catch (_) {}
     if (state.favoritesOnly && !state.favorites.has(track.id)) {
       $("playlistView").scrollTop = 0;
@@ -801,6 +814,91 @@
     renderPlaylist();
   }
 
+  function setWaveMode(enabled) {
+    state.waveMode = enabled;
+    const button = $("btnWave");
+    if (button) {
+      button.classList.toggle("on", enabled);
+      button.setAttribute("aria-pressed", String(enabled));
+      button.textContent = enabled ? "Волна · вкл." : "Моя волна";
+    }
+    if (!enabled) {
+      state.waveQueue = [];
+      state.waveReason = "";
+      $("waveReason").textContent = "";
+    }
+  }
+
+  async function fetchWaveQueue() {
+    const recent = [...state.waveSeen].slice(-30);
+    const current = currentTrack();
+    if (current && !recent.includes(current.id)) recent.push(current.id);
+    const query = new URLSearchParams({ count: "10", exclude: recent.join(",") });
+    const response = await api(`/api/wave/queue?${query.toString()}`);
+    state.waveQueue.push(...(response.items || []));
+  }
+
+  async function playWaveNext() {
+    if (!state.waveMode || state.waveLoading) return;
+    state.waveLoading = true;
+    try {
+      if (!state.waveQueue.length) await fetchWaveQueue();
+      if (!state.waveQueue.length && state.waveSeen.size >= state.tracks.length) {
+        state.waveSeen.clear();
+        const current = currentTrack();
+        if (current) state.waveSeen.add(current.id);
+        await fetchWaveQueue();
+      }
+      const item = state.waveQueue.shift();
+      if (!item) {
+        setWaveMode(false);
+        toast("Не удалось подобрать следующий трек для волны");
+        return;
+      }
+      const index = state.tracks.findIndex((track) => track.id === item.id);
+      if (index < 0) {
+        toast("Рекомендованный трек больше не в библиотеке");
+        return;
+      }
+      state.waveSeen.add(item.id);
+      state.waveReason = item.reason || "подборка по твоим вкусам";
+      playIndex(index, true);
+    } catch (error) {
+      setWaveMode(false);
+      toast(`Моя волна: ${error.message}`);
+    } finally {
+      state.waveLoading = false;
+    }
+  }
+
+  async function startWave() {
+    if (state.waveMode) {
+      setWaveMode(false);
+      return;
+    }
+    if (!state.tracks.length) {
+      toast("Сначала выбери папку с музыкой");
+      return;
+    }
+    state.waveSeen.clear();
+    state.waveQueue = [];
+    const current = currentTrack();
+    if (current) state.waveSeen.add(current.id);
+    setWaveMode(true);
+    await playWaveNext();
+  }
+
+  function sendWaveSignal(signal) {
+    const track = currentTrack();
+    if (!track) return;
+    const duration = getPosition();
+    if (signal === "skip" && duration >= 30) return;
+    api("/api/wave/signal", {
+      method: "POST",
+      body: JSON.stringify({ track_id: track.id, signal, duration }),
+    }).catch((error) => console.warn("Wave feedback was not saved:", error.message));
+  }
+
   function onEnded() {
     if (state.repeat === "one") {
       if (state.mode === "youtube" && state.yt) {
@@ -812,10 +910,20 @@
       }
       return;
     }
+    if (state.waveMode) {
+      sendWaveSignal("complete");
+      playWaveNext();
+      return;
+    }
     next(true);
   }
 
   function next(fromEnded) {
+    if (state.waveMode) {
+      if (!fromEnded) sendWaveSignal("skip");
+      playWaveNext();
+      return;
+    }
     if (!state.tracks.length) return;
     let i;
     if (state.shuffle) {
@@ -839,6 +947,11 @@
   }
 
   function prev() {
+    if (state.waveMode) {
+      sendWaveSignal("skip");
+      playWaveNext();
+      return;
+    }
     if (!state.tracks.length) return;
     const pos = getPosition();
     if (pos > 3) {
@@ -1113,6 +1226,14 @@
   // ---------- кнопки и горячие клавиши ----------
   $("btnPlay").addEventListener("click", togglePlay);
   $("btnFavorite").addEventListener("click", toggleCurrentFavorite);
+  $("btnDislike")?.addEventListener("click", () => {
+    const track = currentTrack();
+    if (!track) return;
+    sendWaveSignal("dislike");
+    toast("Учту: меньше таких треков");
+  });
+  $("btnWave")?.addEventListener("click", startWave);
+  $("btnWaveHero")?.addEventListener("click", startWave);
   $("btnFavoritesFilter").addEventListener("click", toggleFavoritesFilter);
   $("btnNext").addEventListener("click", () => next(false));
   $("btnPrev").addEventListener("click", prev);

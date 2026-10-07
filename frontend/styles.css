@@ -534,6 +534,9 @@ html:not(.collapsed) .rail-open { display: none !important; }
   box-shadow: 0 1rem 2.4rem rgba(0, 0, 0, 0.4);
 }
 .hint { font-size: 0.75rem !important; opacity: 0.7; }
+#btnWaveHero { margin-top: 0.35rem; }
+#btnWave.on { color: var(--text); border-color: var(--accent-2); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.wave-reason { min-height: 1rem; margin-top: 0.2rem; color: var(--muted); font-size: 0.68rem; }
 
 .media-layer {
   position: absolute;

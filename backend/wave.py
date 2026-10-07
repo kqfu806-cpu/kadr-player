@@ -1,0 +1,481 @@
+"""Local, feedback-driven recommendation queue for the endless listening wave."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import math
+import random
+import sqlite3
+import struct
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator
+
+import httpx
+
+from .config import STATS_DB_PATH
+from .lastfm_client import LastFmClient, LastFmError
+from .ollama_ai import OllamaClient
+from .scanner import Track
+
+log = logging.getLogger("kadr.wave")
+SIGNAL_WEIGHTS = {"skip": -1.0, "complete": 1.0, "like": 3.0, "dislike": -5.0}
+EMBEDDING_BATCH_SIZE = 24
+MAX_TRACKS_PER_SIMILAR_SIGNAL = 3
+_mood_lock = asyncio.Lock()
+_last_mood_request = 0.0
+_cached_mood: tuple[float, str] = (0.0, "")
+
+
+@contextmanager
+def _connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    path = db_path or STATS_DB_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS plays (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL UNIQUE,
+            track_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            duration REAL NOT NULL CHECK (duration > 30),
+            artist TEXT NOT NULL,
+            title TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wave_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id TEXT NOT NULL,
+            signal TEXT NOT NULL,
+            weight REAL NOT NULL,
+            timestamp TEXT NOT NULL,
+            related_to TEXT
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_wave_signals_track ON wave_signals(track_id)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS track_embeddings (
+            track_id TEXT PRIMARY KEY,
+            vector BLOB NOT NULL,
+            dimensions INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
+def _pack_vector(vector: list[float]) -> bytes:
+    if not vector or any(not math.isfinite(value) for value in vector):
+        raise ValueError("Embedding must contain finite numbers")
+    return struct.pack(f"<{len(vector)}f", *vector)
+
+
+def _unpack_vector(blob: bytes, dimensions: int) -> list[float]:
+    if dimensions <= 0 or len(blob) != dimensions * 4:
+        raise ValueError("Stored embedding has invalid dimensions")
+    return list(struct.unpack(f"<{dimensions}f", blob))
+
+
+def cosine_similarity(first: list[float], second: list[float]) -> float:
+    if len(first) != len(second) or not first:
+        return 0.0
+    dot = sum(left * right for left, right in zip(first, second))
+    first_norm = math.sqrt(sum(value * value for value in first))
+    second_norm = math.sqrt(sum(value * value for value in second))
+    if not first_norm or not second_norm:
+        return 0.0
+    return dot / (first_norm * second_norm)
+
+
+def store_embedding(
+    track_id: str, vector: list[float], db_path: Path | None = None
+) -> None:
+    blob = _pack_vector(vector)
+    with _connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO track_embeddings (track_id, vector, dimensions, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(track_id) DO UPDATE SET
+                vector = excluded.vector,
+                dimensions = excluded.dimensions,
+                updated_at = excluded.updated_at
+            """,
+            (
+                track_id,
+                blob,
+                len(vector),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+
+def load_embeddings(
+    db_path: Path | None = None,
+) -> dict[str, list[float]]:
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT track_id, vector, dimensions FROM track_embeddings"
+        ).fetchall()
+    vectors: dict[str, list[float]] = {}
+    for row in rows:
+        try:
+            vectors[row["track_id"]] = _unpack_vector(
+                row["vector"], int(row["dimensions"])
+            )
+        except (ValueError, struct.error) as exc:
+            log.warning("Ignoring malformed embedding for %s: %s", row["track_id"], exc)
+    return vectors
+
+
+async def ensure_embeddings(
+    tracks: list[Track],
+    client: httpx.AsyncClient,
+    ollama: OllamaClient,
+    db_path: Path | None = None,
+) -> int:
+    existing = load_embeddings(db_path)
+    if not ollama.status.models.get("nomic-embed-text"):
+        return 0
+    pending = [track for track in tracks if track.id not in existing]
+    computed = 0
+    for offset in range(0, len(pending), EMBEDDING_BATCH_SIZE):
+        batch = pending[offset : offset + EMBEDDING_BATCH_SIZE]
+        for track in batch:
+            text = f"{track.artist}. {track.title}. {track.album}."
+            vector = await ollama.embed(client, text)
+            if not vector:
+                log.warning("Embedding generation stopped at track %s", track.id)
+                return computed
+            store_embedding(track.id, vector, db_path)
+            computed += 1
+    return computed
+
+
+def _listening_data(
+    db_path: Path | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, float]]:
+    with _connect(db_path) as connection:
+        plays = connection.execute(
+            """
+            SELECT track_id, COUNT(*) AS play_count, MAX(timestamp) AS last_played
+            FROM plays GROUP BY track_id
+            """
+        ).fetchall()
+        signals = connection.execute(
+            "SELECT track_id, SUM(weight) AS weight FROM wave_signals GROUP BY track_id"
+        ).fetchall()
+    play_map = {
+        row["track_id"]: {
+            "play_count": int(row["play_count"]),
+            "last_played": row["last_played"],
+        }
+        for row in plays
+    }
+    signal_map = {row["track_id"]: float(row["weight"]) for row in signals}
+    return play_map, signal_map
+
+
+def _time_mood(now: datetime | None = None) -> tuple[str, str]:
+    hour = (now or datetime.now()).hour
+    if 6 <= hour < 12:
+        return "утро", "энергичное"
+    if 12 <= hour < 18:
+        return "день", "рабочее"
+    if 18 <= hour < 23:
+        return "вечер", "расслабленное"
+    return "ночь", "спокойное"
+
+
+async def _recent_mood(
+    recent_tracks: list[Track],
+    client: httpx.AsyncClient,
+    ollama: OllamaClient,
+) -> str:
+    global _cached_mood, _last_mood_request
+    names = [f"{track.artist} — {track.title}" for track in recent_tracks[-5:]]
+    if not names:
+        return ""
+    signature = "\n".join(names)
+    now = asyncio.get_running_loop().time()
+    if _cached_mood[0] > now and _cached_mood[1].startswith(signature + "\n"):
+        return _cached_mood[1][len(signature) + 1 :]
+    async with _mood_lock:
+        now = asyncio.get_running_loop().time()
+        if now - _last_mood_request < 5:
+            if _cached_mood[0] > now and _cached_mood[1].startswith(signature + "\n"):
+                return _cached_mood[1][len(signature) + 1 :]
+            return ""
+        _last_mood_request = now
+        period, expected = _time_mood()
+        prompt = (
+            "Classify the emotional energy and style of this recent local listening sequence. "
+            "Return one short phrase, at most 5 words, no explanation. "
+            f"Time is {period}; expected context: {expected}.\nTracks:\n"
+            + "\n".join(names)
+        )
+        response = await ollama.generate(client, prompt, timeout=12.0, num_predict=32)
+        mood = " ".join((response or "").strip().split()[:5])
+        _cached_mood = (now + 300, signature + "\n" + mood)
+        return mood
+
+
+async def _similar_artists(
+    play_map: dict[str, dict[str, Any]],
+    tracks_by_id: dict[str, Track],
+    lastfm: LastFmClient,
+) -> dict[str, float]:
+    artist_plays: dict[str, int] = {}
+    for track_id, data in play_map.items():
+        track = tracks_by_id.get(track_id)
+        if track:
+            artist_plays[track.artist] = artist_plays.get(track.artist, 0) + data["play_count"]
+    seeds = [
+        artist for artist, _ in sorted(artist_plays.items(), key=lambda pair: pair[1], reverse=True)[:3]
+    ]
+    affinity: dict[str, float] = {}
+    for seed in seeds:
+        try:
+            similar = await lastfm.get_similar_artists(seed, 20)
+        except LastFmError as exc:
+            log.info("Last.fm recommendations unavailable for %s: %s", seed, exc)
+            continue
+        for item in similar:
+            name = str(item.get("name") or "").strip()
+            try:
+                score = float((item.get("match") or 0))
+            except (TypeError, ValueError):
+                score = 0
+            if name:
+                affinity[name.casefold()] = max(affinity.get(name.casefold(), 0), score)
+    return affinity
+
+
+async def recommend(
+    tracks: list[Track],
+    count: int = 10,
+    exclude_ids: set[str] | None = None,
+    client: httpx.AsyncClient | None = None,
+    ollama: OllamaClient | None = None,
+    lastfm: LastFmClient | None = None,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    count = max(1, min(int(count), 50))
+    excluded = exclude_ids or set()
+    available = [track for track in tracks if track.id not in excluded]
+    if not available:
+        return {"items": [], "mood": "", "period": _time_mood()[0], "embeddings_ready": True}
+
+    play_map, signal_map = _listening_data(db_path)
+    vectors = load_embeddings(db_path)
+    tracks_by_id = {track.id: track for track in tracks}
+    affinity: dict[str, float] = {}
+    if lastfm and play_map:
+        affinity = await _similar_artists(play_map, tracks_by_id, lastfm)
+
+    recent_ids: list[str] = []
+    with _connect(db_path) as connection:
+        recent_rows = connection.execute(
+            "SELECT track_id FROM plays ORDER BY timestamp DESC LIMIT 5"
+        ).fetchall()
+    recent_ids = [row["track_id"] for row in recent_rows]
+    recent_tracks = [tracks_by_id[track_id] for track_id in reversed(recent_ids) if track_id in tracks_by_id]
+    mood = ""
+    if client and ollama and recent_tracks:
+        mood = await _recent_mood(recent_tracks, client, ollama)
+    period, expected_mood = _time_mood()
+    mood_text = f"{period} {expected_mood} {mood}".strip()
+    taste_seeds = sorted(
+        (
+            (
+                math.log1p(data["play_count"]) * 2 + signal_map.get(track_id, 0),
+                track_id,
+            )
+            for track_id, data in play_map.items()
+            if track_id in vectors and track_id in tracks_by_id
+        ),
+        reverse=True,
+    )[:8]
+    taste_vectors = [
+        (weight, track_id, vectors[track_id])
+        for weight, track_id in taste_seeds
+        if weight > 0
+    ]
+    mood_vector = None
+    if client and ollama and mood_text and ollama.status.models.get("nomic-embed-text"):
+        mood_vector = await ollama.embed(client, mood_text)
+
+    now = datetime.now(timezone.utc)
+    artist_play_count: dict[str, int] = {}
+    for track_id, data in play_map.items():
+        track = tracks_by_id.get(track_id)
+        if track:
+            artist_play_count[track.artist.casefold()] = (
+                artist_play_count.get(track.artist.casefold(), 0) + data["play_count"]
+            )
+
+    familiarity: list[tuple[float, Track, str]] = []
+    discovery: list[tuple[float, Track, str]] = []
+    for track in available:
+        play_data = play_map.get(track.id, {"play_count": 0, "last_played": None})
+        play_count = play_data["play_count"]
+        signal_weight = signal_map.get(track.id, 0.0)
+        last_played = play_data["last_played"]
+        try:
+            days_since = (now - datetime.fromisoformat(last_played)).days if last_played else 10_000
+        except ValueError:
+            days_since = 10_000
+        familiar_score = math.log1p(play_count) * 2.0 + signal_weight
+        if play_count > 0 or signal_weight > 0:
+            familiarity.append((familiar_score + random.random() * 0.05, track, "часто слушаешь"))
+
+        artist_count = artist_play_count.get(track.artist.casefold(), 0)
+        artist_affinity = affinity.get(track.artist.casefold(), 0.0)
+        track_vector = vectors.get(track.id)
+        similar_track = None
+        embedding_affinity = 0.0
+        if track_vector and taste_vectors:
+            embedding_affinity, seed_id = max(
+                (
+                    (cosine_similarity(track_vector, seed_vector), seed_id)
+                    for weight, seed_id, seed_vector in taste_vectors
+                ),
+                key=lambda item: item[0],
+            )
+            similar_track = tracks_by_id.get(seed_id)
+        mood_affinity = (
+            max(0.0, cosine_similarity(track_vector, mood_vector))
+            if track_vector and mood_vector
+            else 0.0
+        )
+        if artist_count == 0 and artist_affinity > 0:
+            reason = "новый исполнитель"
+        elif embedding_affinity >= 0.55 and similar_track:
+            reason = f"похоже на {similar_track.artist}"
+        elif play_count == 0 or play_count <= 1:
+            reason = "редко слушал"
+        elif days_since > 30:
+            reason = "давно не включал"
+        else:
+            reason = "открытие по вкусу"
+        discovery_score = (
+            3.0 / (1.0 + play_count)
+            + min(days_since, 120) / 60.0
+            + artist_affinity * 2.0
+            + embedding_affinity * 2.0
+            + mood_affinity
+            + max(-5.0, min(5.0, signal_weight))
+            + random.random() * 0.25
+        )
+        discovery.append((discovery_score, track, reason))
+
+    familiarity.sort(key=lambda item: item[0], reverse=True)
+    discovery.sort(key=lambda item: item[0], reverse=True)
+    familiar_count = round(count * 0.6)
+    discovery_count = count - familiar_count
+    chosen: list[tuple[Track, str]] = []
+    seen: set[str] = set()
+    for _, track, reason in familiarity[:familiar_count]:
+        chosen.append((track, reason))
+        seen.add(track.id)
+
+    for score, track, reason in discovery:
+        if track.id in seen:
+            continue
+        if len(chosen) >= familiar_count + discovery_count:
+            break
+        chosen.append((track, reason))
+        seen.add(track.id)
+
+    for _, track, reason in familiarity:
+        if len(chosen) >= count:
+            break
+        if track.id not in seen:
+            chosen.append((track, reason))
+            seen.add(track.id)
+
+    for _, track, reason in discovery:
+        if len(chosen) >= count:
+            break
+        if track.id not in seen:
+            chosen.append((track, reason))
+            seen.add(track.id)
+
+    return {
+        "items": [
+            {**track.to_dict(), "reason": reason}
+            for track, reason in chosen
+        ],
+        "mood": mood,
+        "period": period,
+        "expected_mood": expected_mood,
+        "embeddings_ready": len(vectors) >= len(tracks),
+        "embedding_count": len(vectors),
+    }
+
+
+def record_signal(
+    track_id: str,
+    signal: str,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    if signal not in SIGNAL_WEIGHTS:
+        raise ValueError(f"Unsupported wave signal: {signal}")
+    related: list[tuple[str, float]] = []
+    if signal == "skip":
+        vectors = load_embeddings(db_path)
+        source = vectors.get(track_id)
+        if source:
+            related = sorted(
+                (
+                    (other_id, cosine_similarity(source, vector))
+                    for other_id, vector in vectors.items()
+                    if other_id != track_id
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:MAX_TRACKS_PER_SIMILAR_SIGNAL]
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    with _connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO wave_signals (track_id, signal, weight, timestamp) VALUES (?, ?, ?, ?)",
+            (track_id, signal, SIGNAL_WEIGHTS[signal], timestamp),
+        )
+        for similar_id, similarity in related:
+            connection.execute(
+                "INSERT INTO wave_signals (track_id, signal, weight, timestamp, related_to) "
+                "VALUES (?, 'similar_skip', ?, ?, ?)",
+                (similar_id, -0.5 * max(0.0, similarity), timestamp, track_id),
+            )
+    return {
+        "track_id": track_id,
+        "signal": signal,
+        "weight": SIGNAL_WEIGHTS[signal],
+        "similar_tracks_updated": len(related),
+    }
+
+
+def recent_tracks(db_path: Path | None = None, limit: int = 5) -> list[str]:
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT track_id FROM plays ORDER BY timestamp DESC LIMIT ?",
+            (max(1, min(limit, 5)),),
+        ).fetchall()
+    return [row["track_id"] for row in rows]

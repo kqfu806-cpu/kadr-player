@@ -50,6 +50,7 @@ from .scanner import Track, read_track, scan_folder
 from . import stats as listening_stats
 from .uncensored_finder import find_candidates
 from .uncensored_replacer import replace_track
+from . import wave as wave_engine
 
 # Windows-консоль: нормальный UTF-8 для кириллицы в логах
 if sys.platform == "win32":
@@ -152,6 +153,13 @@ uncensored_replace_state: dict[str, Any] = {
     "processed": 0,
     "total": 0,
     "results": [],
+    "error": None,
+}
+wave_embedding_task: asyncio.Task[int] | None = None
+wave_embedding_state: dict[str, Any] = {
+    "status": "idle",
+    "embedded": 0,
+    "total": 0,
     "error": None,
 }
 
@@ -548,6 +556,105 @@ async def api_stats_export_csv() -> Response:
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="kadr-listening-stats.csv"'},
     )
+
+
+async def _start_wave_embedding_warmup() -> None:
+    global wave_embedding_task
+    if not library:
+        raise HTTPException(400, "Сначала выберите папку с музыкой")
+    existing = wave_engine.load_embeddings()
+    matching = sum(1 for track_id in library if track_id in existing)
+    missing = len(library) - matching
+    if missing <= 0:
+        wave_embedding_state.update(
+            status="ready", embedded=matching, total=len(library), error=None
+        )
+        return
+    if wave_embedding_task and not wave_embedding_task.done():
+        return
+
+    wave_embedding_state.update(
+        status="running", embedded=matching, total=len(library), error=None
+    )
+
+    async def worker() -> int:
+        try:
+            count = await wave_engine.ensure_embeddings(
+                list(library.values()), _client(), ollama
+            )
+            current_embeddings = wave_engine.load_embeddings()
+            current = sum(1 for track_id in library if track_id in current_embeddings)
+            wave_embedding_state.update(
+                status="ready" if current >= len(library) else "partial",
+                embedded=current,
+                total=len(library),
+                error=None if current >= len(library) else "Embedding model unavailable or failed",
+            )
+            return count
+        except Exception as exc:
+            logging.getLogger("kadr.wave").exception("Embedding warmup failed")
+            wave_embedding_state.update(
+                status="error",
+                embedded=len(wave_engine.load_embeddings()),
+                total=len(library),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return 0
+
+    wave_embedding_task = asyncio.create_task(worker())
+
+
+async def _wave_queue_result(count: int, exclude: str) -> dict[str, Any]:
+    if not library:
+        raise HTTPException(400, "Сначала выберите папку с музыкой")
+    await _start_wave_embedding_warmup()
+    excluded = {track_id for track_id in exclude.split(",") if track_id in library}
+    result = await wave_engine.recommend(
+        list(library.values()),
+        count=count,
+        exclude_ids=excluded,
+        client=_client(),
+        ollama=ollama,
+        lastfm=lastfm_client,
+    )
+    result["embedding_status"] = dict(wave_embedding_state)
+    return result
+
+
+@app.get("/api/wave/queue")
+async def api_wave_queue(
+    count: int = Query(default=10, ge=1, le=50),
+    exclude: str = Query(default="", max_length=4000),
+) -> dict[str, Any]:
+    return await _wave_queue_result(count, exclude)
+
+
+@app.get("/api/wave/next")
+async def api_wave_next() -> dict[str, Any]:
+    result = await _wave_queue_result(1, "")
+    items = result.pop("items")
+    if not items:
+        raise HTTPException(404, "В библиотеке нет доступных треков для волны")
+    result["track"] = items[0]
+    return result
+
+
+@app.post("/api/wave/signal")
+async def api_wave_signal(body: dict[str, Any]) -> dict[str, Any]:
+    track_id = str(body.get("track_id") or "").strip()
+    if track_id not in library:
+        raise HTTPException(404, "Трек не найден в текущей библиотеке")
+    signal = str(body.get("signal") or "").strip()
+    if signal not in wave_engine.SIGNAL_WEIGHTS:
+        raise HTTPException(400, "Допустимые реакции: skip, complete, like, dislike")
+    if signal == "skip":
+        try:
+            duration = float(body.get("duration", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Некорректная длительность до пропуска")
+        if not 0 <= duration < 30:
+            raise HTTPException(400, "Пропуск учитывается только до 30 секунд")
+    return wave_engine.record_signal(track_id, signal)
 
 
 @app.post("/api/new-releases")

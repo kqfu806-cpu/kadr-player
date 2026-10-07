@@ -18,7 +18,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=12" />
+  <link rel="stylesheet" href="/static/styles.css?v=13" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -56,6 +56,7 @@
         <button class="btn ghost" id="btnRefresh" title="Пересканировать клипы и обложки">Обновить клипы</button>
         <button class="btn ghost" id="btnQuality" title="Проверить качество библиотеки">Качество</button>
         <button class="btn ghost" id="btnStats" type="button">Статистика</button>
+        <button class="btn ghost" id="btnWave" type="button" aria-pressed="false">Моя волна</button>
         <div class="status-pill" id="ollamaPill" title="Состояние Ollama">
           <span class="dot"></span>
           <span class="lbl">Ollama…</span>
@@ -129,6 +130,7 @@
             <div class="welcome-mark">▶</div>
             <h1>Ваша музыка. Ваш Курымдык.</h1>
             <p>Локальная библиотека, клипы, тексты песен и похожие артисты в одном плеере.</p>
+            <button class="btn primary lg" id="btnWaveHero" type="button">Запустить «Мою волну»</button>
             <button class="btn primary lg" id="btnBrowseHero">Выбрать папку с музыкой</button>
             <p class="hint">Ollama на localhost:11434 · deepseek-r1:8b · llava:7b · nomic-embed-text</p>
           </div>
@@ -248,9 +250,11 @@
           <button class="icon-btn sm favorite-btn" id="btnFavorite" type="button" title="В избранное" aria-label="Добавить в избранное" aria-pressed="false" disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
           </button>
+          <button class="icon-btn sm dislike-btn" id="btnDislike" type="button" title="Не рекомендовать" aria-label="Не рекомендовать этот трек" disabled>⊘</button>
         </div>
         <div class="now-artist" id="nowArtist">Выберите трек</div>
         <div class="now-album muted" id="nowAlbum"></div>
+        <div class="wave-reason" id="waveReason" aria-live="polite"></div>
       </div>
 
       <div class="player-center">
@@ -341,6 +345,6 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/static/vendor/anime.js"></script>
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=15"></script>
 </body>
 </html>
