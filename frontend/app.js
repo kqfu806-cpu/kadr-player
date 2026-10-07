@@ -2406,6 +2406,99 @@
     }
   }
 
+  function profileSource(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "https:" && parsed.hostname === "www.last.fm"
+        ? parsed.href
+        : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function renderArtistProfile(profile) {
+    const content = $("profileContent");
+    const status = $("profileStatus");
+    if (!content || !status) return;
+    status.textContent = `${profile.local_tracks.length} треков в библиотеке`;
+    const image = profile.image
+      ? `<img class="profile-image" src="${esc(profile.image)}" alt="" referrerpolicy="no-referrer">`
+      : `<span class="profile-image missing" aria-hidden="true"></span>`;
+    const genres = (profile.genres || []).map((tag) =>
+      `<span class="profile-tag">${esc(tag.name)}</span>`).join("");
+    const localRows = profile.local_tracks.length
+      ? profile.local_tracks.map((track) =>
+        `<li><button class="profile-track-main btn ghost" type="button" data-profile-track="${esc(track.id)}">` +
+        `${esc(track.title)}<small>${esc([track.album, track.year].filter(Boolean).join(" · "))}</small></button></li>`).join("")
+      : `<li class="muted">Треков в локальной библиотеке нет.</li>`;
+    const topRows = (profile.top_tracks || []).length
+      ? profile.top_tracks.map((track) => {
+        const url = profileSource(track.url);
+        const action = track.in_library
+          ? `<span class="muted">В библиотеке</span>`
+          : (url ? `<a class="profile-open" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Открыть в Last.fm ↗</a>` : "");
+        return `<li><span class="profile-track-main">${esc(track.title)}<small>${esc(track.listeners)} слушателей</small></span>${action}</li>`;
+      }).join("")
+      : `<li class="muted">Last.fm не вернул топ-треки.</li>`;
+    const similar = (profile.similar || []).map((artist) =>
+      `<button class="similar-chip" type="button" data-profile-artist="${esc(artist.name)}">${esc(artist.name)}</button>`).join("");
+    const releases = (profile.releases || []).length
+      ? profile.releases.map((release) =>
+        `<li><span class="profile-track-main">${esc(release.title)}<small>${esc(release.date)} · ${esc(release.type || "релиз")}</small></span>` +
+        `<a class="profile-open" href="${esc(release.url)}" target="_blank" rel="noopener noreferrer">MusicBrainz ↗</a></li>`).join("")
+      : `<li class="muted">Релизов за последние 3 месяца не найдено.</li>`;
+    const warnings = (profile.warnings || []).map((warning) =>
+      `<p class="profile-warning">${esc(warning)}</p>`).join("");
+    const artistUrl = `https://www.last.fm/music/${encodeURIComponent(profile.artist)}`;
+    content.innerHTML =
+      `<div class="profile-hero">${image}<div><h1 class="profile-title">${esc(profile.artist)}</h1>` +
+      `<div class="profile-tags">${genres || `<span class="muted">Жанры не указаны</span>`}</div>` +
+      `<a class="profile-open" href="${esc(artistUrl)}" target="_blank" rel="noopener noreferrer">Профиль Last.fm ↗</a>` +
+      `<p class="profile-bio">${esc(profile.bio || "Биография не указана.")}</p></div></div>` +
+      `<div class="profile-sections">` +
+      `<section class="profile-section"><h2>В библиотеке</h2><ul class="profile-list">${localRows}</ul></section>` +
+      `<section class="profile-section"><h2>Топ треки · Last.fm</h2><ul class="profile-list">${topRows}</ul></section>` +
+      `<section class="profile-section"><h2>Похожие исполнители</h2><div class="profile-similar">${similar || `<span class="muted">Нет данных.</span>`}</div></section>` +
+      `<section class="profile-section"><h2>Новые релизы · 3 месяца</h2><ul class="profile-list">${releases}</ul>${warnings}</section>` +
+      `</div>`;
+  }
+
+  async function openArtistProfile(name) {
+    const profileView = $("artistProfile");
+    if (!profileView || !name) return;
+    $("welcome").classList.add("hidden");
+    $("mediaLayer").classList.add("hidden");
+    profileView.classList.remove("hidden");
+    $("profileStatus").textContent = "Загружаю профиль…";
+    $("profileContent").innerHTML = "";
+    try {
+      const profile = await api(`/api/artist/${encodeURIComponent(name)}`);
+      renderArtistProfile(profile);
+    } catch (error) {
+      $("profileStatus").textContent = "Не удалось загрузить профиль";
+      $("profileContent").innerHTML = `<p class="profile-warning">${esc(error.message)}</p>`;
+    }
+  }
+
+  $("profileBack")?.addEventListener("click", () => {
+    $("artistProfile").classList.add("hidden");
+    showWelcome(!currentTrack());
+  });
+  $("profileContent")?.addEventListener("click", (event) => {
+    const trackButton = event.target.closest("[data-profile-track]");
+    if (trackButton) {
+      const index = state.tracks.findIndex((track) => track.id === trackButton.dataset.profileTrack);
+      if (index >= 0) {
+        $("artistProfile").classList.add("hidden");
+        playIndex(index);
+      }
+      return;
+    }
+    const artistButton = event.target.closest("[data-profile-artist]");
+    if (artistButton) openArtistProfile(artistButton.dataset.profileArtist);
+  });
+
   $("tabTracks")?.addEventListener("click", () => setSideTab("tracks"));
   $("tabArtists")?.addEventListener("click", () => setSideTab("artists"));
   $("btnAllTracks")?.addEventListener("click", () => filterByArtist(""));
@@ -2421,16 +2514,12 @@
     const main = e.target.closest(".artist-main");
     if (!main) return;
     const name = main.dataset.name;
-    filterByArtist(name, true);
-    showSimilar(name);
-    renderArtistsList(name);
+    openArtistProfile(name);
   });
   $("similarNames")?.addEventListener("click", (e) => {
     const b = e.target.closest(".similar-chip");
     if (!b) return;
-    filterByArtist(b.dataset.name, true);
-    showSimilar(b.dataset.name);
-    renderArtistsList(b.dataset.name);
+    openArtistProfile(b.dataset.name);
   });
   $("btnRefreshReleases")?.addEventListener("click", () => loadWeeklyReleases(true));
   $("tabNewTracks")?.addEventListener("click", () => {

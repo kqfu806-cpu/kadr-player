@@ -6,8 +6,10 @@ Backend: FastAPI. Все ИИ-запросы только на http://127.0.0.1:
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ from starlette.requests import ClientDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from .artists import build_artists
+from .artist_discography import fetch_artist_releases
 from .cache_store import CacheStore
 from .config import (
     CACHE_DIR,
@@ -326,6 +329,112 @@ async def api_lastfm_info(artist: str) -> dict[str, Any]:
     except LastFmError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"artist": info}
+
+
+@app.get("/api/artist/{name}")
+async def api_artist_profile(name: str) -> dict[str, Any]:
+    name = name.strip()
+    if not name:
+        raise HTTPException(400, "Укажите имя исполнителя")
+    try:
+        info = await lastfm_client.get_artist_info(name)
+        artist_name = str(info.get("name") or name)
+        similar, top_tracks, tags = await asyncio.gather(
+            lastfm_client.get_similar_artists(artist_name, 10),
+            lastfm_client.get_artist_top_tracks(artist_name, 20),
+            lastfm_client.get_artist_top_tags(artist_name, 10),
+        )
+    except LastFmConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except LastFmError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+    artist_key = artist_name.casefold()
+    local_tracks = [
+        track.to_dict()
+        for track in library.values()
+        if track.artist.strip().casefold() == artist_key
+    ]
+    formatted_tracks = []
+    for track in top_tracks:
+        title = str(track.get("name") or "").strip()
+        if not title:
+            continue
+        track_artist = track.get("artist")
+        formatted_tracks.append(
+            {
+                "title": title,
+                "url": str(track.get("url") or ""),
+                "artist": str(track_artist.get("name") or artist_name)
+                if isinstance(track_artist, dict)
+                else artist_name,
+                "listeners": str(track.get("listeners") or ""),
+                "in_library": any(
+                    local["title"].strip().casefold() == title.casefold()
+                    for local in local_tracks
+                ),
+            }
+        )
+    top_tracks = formatted_tracks
+    normalized_tags = []
+    for tag in tags:
+        tag_name = str(tag.get("name") or "").strip()
+        if not tag_name:
+            continue
+        try:
+            count = int(tag.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        normalized_tags.append({"name": tag_name, "count": count})
+
+    releases: list[dict[str, Any]] = []
+    release_error = None
+    mbid = str(info.get("mbid") or "")
+    if mbid:
+        try:
+            releases = await fetch_artist_releases(_client(), mbid, months=3)
+        except (httpx.HTTPError, ValueError) as exc:
+            logging.getLogger("kadr.musicbrainz").exception(
+                "MusicBrainz profile lookup failed for %s", artist_name
+            )
+            release_error = f"MusicBrainz недоступен: {type(exc).__name__}"
+    else:
+        release_error = "Для исполнителя нет MusicBrainz ID"
+
+    bio_data = info.get("bio")
+    bio = str(bio_data.get("summary") or "") if isinstance(bio_data, dict) else ""
+    bio = html.unescape(re.sub(r"<[^>]*>", " ", bio))
+    bio = " ".join(bio.split())
+    images = info.get("image") or []
+    image_url = ""
+    if isinstance(images, list):
+        image_url = next(
+            (
+                str(image.get("#text") or "")
+                for image in reversed(images)
+                if isinstance(image, dict) and image.get("#text")
+            ),
+            "",
+        )
+        if image_url and not image_url.startswith("https://lastfm.freetls.fastly.net/"):
+            image_url = ""
+
+    return {
+        "artist": artist_name,
+        "image": image_url,
+        "bio": bio,
+        "genres": normalized_tags,
+        "similar": [
+            {"name": str(item.get("name") or ""), "url": str(item.get("url") or "")}
+            for item in similar
+            if item.get("name")
+        ],
+        "local_tracks": local_tracks,
+        "top_tracks": top_tracks,
+        "releases": releases,
+        "warnings": [release_error] if release_error else [],
+        "sources": {"lastfm": "Last.fm", "musicbrainz": "MusicBrainz"},
+    }
 
 
 @app.post("/api/new-releases")

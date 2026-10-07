@@ -20,7 +20,8 @@ kadr/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── config.py           ← пути, модели Ollama, публичные API
-│   ├── main.py             ← FastAPI: библиотека, стрим, FS, WebSocket
+│   ├── main.py             ← FastAPI: библиотека, профили, стрим, FS, WebSocket
+│   ├── artist_discography.py ← недавние релизы MusicBrainz с локальным кэшем
 │   ├── audio_fetcher.py    ← необязательный адаптер tools/audiodl.exe (не подключён к UI)
 │   ├── lastfm_client.py    ← Last.fm API с локальным 24-часовым кэшем
 │   ├── lastfm_config.py    ← необязательный LASTFM_API_KEY
@@ -112,8 +113,11 @@ run.bat
 - `GET /api/lastfm/similar/{artist}?limit=20`
 - `GET /api/lastfm/top/{artist}?limit=10`
 - `GET /api/lastfm/info/{artist}`
+- `GET /api/artist/{name}` — локальная библиотека, биография, теги, похожие и топ-треки Last.fm, недавние релизы MusicBrainz
 
 Ответы кэшируются локально в `.tools/lastfm_cache/` на 24 часа; журнал — `.tools/lastfm.log`.
+
+Профиль исполнителя открывается нажатием на артиста в боковой панели. Внешние топ-треки ведут на их страницы Last.fm. Загрузка коммерческих записей через сторонний загрузчик в профиль не добавлена; локальные треки доступны прямо в плеере.
 
 ### Внешний audio downloader (необязательно)
 

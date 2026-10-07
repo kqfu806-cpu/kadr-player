@@ -24,6 +24,7 @@ async def test_client_methods_parse_api_responses_and_cache(
     responses: dict[str, dict[str, Any]] = {
         "artist.getSimilar": {"similarartists": {"artist": [{"name": "Similar"}]}},
         "artist.getTopTracks": {"toptracks": {"track": [{"name": "Top track"}]}},
+        "artist.getTopTags": {"toptags": {"tag": [{"name": "rock"}]}},
         "artist.getInfo": {"artist": {"name": "Artist", "bio": {"summary": "Bio"}}},
         "track.getSimilar": {"similartracks": {"track": [{"name": "Related track"}]}},
     }
@@ -37,6 +38,7 @@ async def test_client_methods_parse_api_responses_and_cache(
         lastfm = LastFmClient(client=client, cache_dir=tmp_path, api_key="test-key")
         assert await lastfm.get_similar_artists("Artist") == [{"name": "Similar"}]
         assert await lastfm.get_artist_top_tracks("Artist") == [{"name": "Top track"}]
+        assert await lastfm.get_artist_top_tags("Artist") == [{"name": "rock"}]
         assert await lastfm.get_artist_info("Artist") == {
             "name": "Artist",
             "bio": {"summary": "Bio"},
@@ -45,8 +47,8 @@ async def test_client_methods_parse_api_responses_and_cache(
             {"name": "Related track"}
         ]
 
-    assert len(methods) == 4
-    assert len(list(tmp_path.glob("*.json"))) == 4
+    assert len(methods) == 5
+    assert len(list(tmp_path.glob("*.json"))) == 5
 
 
 @pytest.mark.asyncio

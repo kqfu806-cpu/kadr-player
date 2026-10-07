@@ -18,7 +18,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=10" />
+  <link rel="stylesheet" href="/static/styles.css?v=11" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -131,6 +131,14 @@
             <button class="btn primary lg" id="btnBrowseHero">Выбрать папку с музыкой</button>
             <p class="hint">Ollama на localhost:11434 · deepseek-r1:8b · llava:7b · nomic-embed-text</p>
           </div>
+
+          <section class="artist-profile hidden" id="artistProfile" aria-live="polite">
+            <header class="profile-toolbar">
+              <button class="btn ghost" id="profileBack" type="button">← К плееру</button>
+              <span class="muted" id="profileStatus"></span>
+            </header>
+            <div id="profileContent"></div>
+          </section>
 
           <div class="media-layer hidden" id="mediaLayer">
             <div class="art-stage" id="artStage">
@@ -288,6 +296,6 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/static/vendor/anime.js"></script>
-  <script src="/static/app.js?v=12"></script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>

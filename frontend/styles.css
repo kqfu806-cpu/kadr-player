@@ -1424,3 +1424,91 @@ input[type="range"]::-webkit-slider-thumb {
 .fs-controls input[type="range"] {
   background: rgba(255,255,255,0.22);
 }
+
+.artist-profile {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(24px);
+}
+.profile-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 2.5rem;
+  margin-bottom: 1.25rem;
+}
+.profile-hero {
+  display: grid;
+  grid-template-columns: clamp(7rem, 18vw, 12rem) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(1rem, 3vw, 2rem);
+  max-width: 68rem;
+  margin: 0 auto 1.5rem;
+}
+.profile-image {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 1rem;
+  background: var(--glass);
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.2);
+}
+.profile-image.missing { display: block; }
+.profile-title { margin: 0; font-size: clamp(1.8rem, 4vw, 3.4rem); letter-spacing: -0.04em; }
+.profile-bio { max-width: 52rem; color: var(--muted); line-height: 1.65; }
+.profile-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.75rem 0; }
+.profile-tag {
+  padding: 0.28rem 0.62rem;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.profile-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  max-width: 68rem;
+  margin: 0 auto;
+}
+.profile-section {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--stroke);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--glass) 82%, transparent);
+}
+.profile-section h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+.profile-list { list-style: none; margin: 0; padding: 0; }
+.profile-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.7rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--stroke) 55%, transparent);
+}
+.profile-list li:last-child { border-bottom: 0; }
+.profile-track-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-track-main small { display: block; color: var(--muted); }
+.profile-open {
+  flex: 0 0 auto;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+.profile-open:hover { color: var(--accent-2); text-decoration: underline; }
+.profile-similar { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.profile-warning { color: var(--muted); font-size: 0.8rem; }
+@media (max-width: 760px) {
+  .profile-sections { grid-template-columns: 1fr; }
+  .profile-hero { grid-template-columns: 5.5rem minmax(0, 1fr); align-items: start; }
+  .profile-image { border-radius: 0.75rem; }
+  .profile-title { font-size: 1.65rem; }
+  .profile-bio { grid-column: 1 / -1; }
+}
