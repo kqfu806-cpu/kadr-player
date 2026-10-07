@@ -1,8 +1,9 @@
 /* Оболочка офлайн. Аудио/API не кэшируем. */
-const CACHE = "kadr-shell-v9";
+const CACHE = "kadr-shell-v10";
 const SHELL = [
   "/",
   "/static/styles.css",
+  "/static/i18n.js",
   "/static/app.js",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",

@@ -251,7 +251,7 @@
       } catch (_) {
         msg = await r.text();
       }
-      throw new Error(msg || "Ошибка API");
+      throw new Error(window.i18n ? window.i18n.localizeText(msg || "Ошибка API") : (msg || "Ошибка API"));
     }
     return r.json();
   }
@@ -2608,7 +2608,10 @@
     }
     status.textContent = `${tracks.length} треков · ${albums.length} альбомов · Deezer`;
     const row = (release, withPreview) => {
-      const date = new Date(`${release.date}T00:00:00`).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+      const releaseDate = new Date(`${release.date}T00:00:00`);
+      const date = window.i18n
+        ? window.i18n.date(releaseDate)
+        : releaseDate.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
       const preview = withPreview && release.preview
         ? `<audio class="release-preview" controls preload="none" src="${esc(release.preview)}" aria-label="Предпрослушать ${esc(release.title)}"></audio>`
         : "";
@@ -2810,9 +2813,9 @@
       return `${statsColors[index % statsColors.length]} ${start.toFixed(2)}% ${progress.toFixed(2)}%`;
     });
     donut.style.background = `conic-gradient(${stops.join(",")})`;
-    donut.setAttribute("aria-label", `Жанры: ${items.map((item) => item.name).join(", ")}`);
+    donut.setAttribute("aria-label", `Жанры: ${items.map((item) => window.i18n ? window.i18n.genre(item.name) : item.name).join(", ")}`);
     legend.innerHTML = items.map((item, index) =>
-      `<li><i style="background:${statsColors[index % statsColors.length]}"></i><span>${esc(item.name)} · ${item.artists} исполн.</span></li>`).join("");
+      `<li><i style="background:${statsColors[index % statsColors.length]}"></i><span>${esc(window.i18n ? window.i18n.genre(item.name) : item.name)} · ${item.artists} исполн.</span></li>`).join("");
     if (data.warnings && data.warnings.length) {
       legend.insertAdjacentHTML("beforeend", `<li class="stats-empty">${esc(data.warnings[0])}</li>`);
     }
@@ -3156,7 +3159,7 @@
       ? `<img class="profile-image" src="${esc(profile.image)}" alt="" referrerpolicy="no-referrer">`
       : `<span class="profile-image missing" aria-hidden="true"></span>`;
     const genres = (profile.genres || []).map((tag) =>
-      `<span class="profile-tag">${esc(tag.name)}</span>`).join("");
+      `<span class="profile-tag">${esc(window.i18n ? window.i18n.genre(tag.name) : tag.name)}</span>`).join("");
     const localRows = profile.local_tracks.length
       ? profile.local_tracks.map((track) =>
         `<li><button class="profile-track-main btn ghost" type="button" data-profile-track="${esc(track.id)}">` +
@@ -3168,14 +3171,14 @@
         const action = track.in_library
           ? `<span class="muted">В библиотеке</span>`
           : (url ? `<a class="profile-open" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Открыть в Last.fm ↗</a>` : "");
-        return `<li><span class="profile-track-main">${esc(track.title)}<small>${esc(track.listeners)} слушателей</small></span>${action}</li>`;
+        return `<li><span class="profile-track-main">${esc(track.title)}<small>${esc(track.listeners)} ${window.i18n ? window.i18n.t("profile.listeners") : "прослушиваний"}</small></span>${action}</li>`;
       }).join("")
       : `<li class="muted">Last.fm не вернул топ-треки.</li>`;
     const similar = (profile.similar || []).map((artist) =>
       `<button class="similar-chip" type="button" data-profile-artist="${esc(artist.name)}">${esc(artist.name)}</button>`).join("");
     const releases = (profile.releases || []).length
       ? profile.releases.map((release) =>
-        `<li><span class="profile-track-main">${esc(release.title)}<small>${esc(release.date)} · ${esc(release.type || "релиз")}</small></span>` +
+        `<li><span class="profile-track-main">${esc(release.title)}<small>${esc(window.i18n ? window.i18n.date(release.date) : release.date)} · ${esc(release.type || "релиз")}</small></span>` +
         `<a class="profile-open" href="${esc(release.url)}" target="_blank" rel="noopener noreferrer">MusicBrainz ↗</a></li>`).join("")
       : `<li class="muted">Релизов за последние 3 месяца не найдено.</li>`;
     const warnings = (profile.warnings || []).map((warning) =>
@@ -3185,7 +3188,7 @@
       `<div class="profile-hero">${image}<div><h1 class="profile-title">${esc(profile.artist)}</h1>` +
       `<div class="profile-tags">${genres || `<span class="muted">Жанры не указаны</span>`}</div>` +
       `<a class="profile-open" href="${esc(artistUrl)}" target="_blank" rel="noopener noreferrer">Профиль Last.fm ↗</a>` +
-      `<p class="profile-bio">${esc(profile.bio || "Биография не указана.")}</p></div></div>` +
+      `<p class="profile-bio">${esc(window.i18n ? window.i18n.localizeText(profile.bio || window.i18n.t("profile.noBiography")) : (profile.bio || "Биография не указана."))}</p></div></div>` +
       `<div class="profile-sections">` +
       `<section class="profile-section"><h2>В библиотеке</h2><ul class="profile-list">${localRows}</ul></section>` +
       `<section class="profile-section"><h2>Топ треки · Last.fm</h2><ul class="profile-list">${topRows}</ul></section>` +

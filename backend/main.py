@@ -49,6 +49,7 @@ from .ollama_ai import OllamaClient
 from .placeholder import generate_placeholder
 from .releases import fetch_weekly_releases
 from .scanner import Track, read_track, scan_folder
+from .translator import translate_biography
 from . import stats as listening_stats
 from .uncensored_finder import find_candidates
 from .uncensored_replacer import replace_track
@@ -457,6 +458,8 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
     bio = str(bio_data.get("summary") or "") if isinstance(bio_data, dict) else ""
     bio = html.unescape(re.sub(r"<[^>]*>", " ", bio))
     bio = " ".join(bio.split())
+    if bio:
+        bio = await translate_biography(bio, _client(), ollama)
     images = info.get("image") or []
     image_url = ""
     if isinstance(images, list):

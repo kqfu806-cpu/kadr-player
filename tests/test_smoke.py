@@ -32,6 +32,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         "/api/cache",
         "/manifest.json",
         "/sw.js",
+        "/static/i18n.js",
     ],
 )
 def test_smoke_endpoints_return_success(client: TestClient, path: str) -> None:
