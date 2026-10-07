@@ -35,6 +35,35 @@ def test_record_play_is_idempotent_and_requires_more_than_30_seconds(
         stats.record_play("another-track", "session", 90, "Other", "Title", db_path)
 
 
+def test_summary_uses_rolling_seven_and_thirty_day_windows(tmp_path: Path) -> None:
+    db_path = tmp_path / "stats.sqlite3"
+    now = datetime.now(timezone.utc)
+    recordings = [
+        ("today", now - timedelta(hours=1)),
+        ("week", now - timedelta(days=6)),
+        ("month", now - timedelta(days=29)),
+        ("older", now - timedelta(days=31)),
+    ]
+    with stats._connect(db_path) as connection:
+        connection.executemany(
+            """
+            INSERT INTO plays (session_id, track_id, timestamp, duration, artist, title)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (session_id, f"track-{session_id}", timestamp.isoformat(), 60, "Artist", session_id)
+                for session_id, timestamp in recordings
+            ],
+        )
+
+    result = stats.summary(db_path)
+
+    assert result["day"]["tracks"] == 1
+    assert result["week"]["tracks"] == 2
+    assert result["month"]["tracks"] == 3
+    assert result["all"]["tracks"] == 4
+
+
 def test_top_and_timeline_return_daily_and_hourly_buckets(tmp_path: Path) -> None:
     db_path = tmp_path / "stats.sqlite3"
     first = stats.record_play("id-1", "session-1", 60, "Artist", "Song", db_path)

@@ -50,13 +50,9 @@ def _period_start(period: str, now: datetime | None = None) -> str | None:
     if period == "day":
         start = datetime.combine(current.date(), time.min, tzinfo=timezone.utc)
     elif period == "week":
-        start = datetime.combine(
-            current.date() - timedelta(days=current.weekday()),
-            time.min,
-            tzinfo=timezone.utc,
-        )
+        start = current - timedelta(days=7)
     elif period == "month":
-        start = datetime(current.year, current.month, 1, tzinfo=timezone.utc)
+        start = current - timedelta(days=30)
     else:
         return None
     return start.isoformat()
