@@ -35,6 +35,7 @@ from .config import (
 from .censorship_detector import detect_suspects
 from .covers import fetch_cover_report, proxy_cover
 from .index_store import IndexStore
+from .lastfm_client import LastFmClient, LastFmConfigurationError, LastFmError
 from .lyrics import fetch_lyrics, lyrics_cache_path
 from .media_resolver import MediaResolver
 from .ollama_ai import OllamaClient
@@ -121,6 +122,7 @@ cache = CacheStore()
 track_index = IndexStore()
 ollama = OllamaClient(OLLAMA_URL)
 resolver = MediaResolver(cache, ollama, track_index)
+lastfm_client = LastFmClient()
 
 # Состояние библиотеки в памяти
 library: dict[str, Track] = {}
@@ -213,6 +215,7 @@ async def _startup() -> None:
         headers={"User-Agent": USER_AGENT},
         timeout=30.0,
     )
+    lastfm_client.client = http_client
     await ollama.refresh_status(http_client)
     st = ollama.status.to_dict()
     print("=== Курымдык ===")
@@ -224,6 +227,7 @@ async def _startup() -> None:
 async def _shutdown() -> None:
     if http_client:
         await http_client.aclose()
+    lastfm_client.client = None
 
 
 def _client() -> httpx.AsyncClient:
@@ -285,6 +289,43 @@ async def api_artists() -> dict[str, Any]:
     """Уникальные исполнители + похожие (nomic-embed-text, если Ollama жива)."""
     tracks = list(library.values())
     return await build_artists(_client(), ollama, tracks)
+
+
+@app.get("/api/lastfm/similar/{artist}")
+async def api_lastfm_similar(
+    artist: str, limit: int = Query(default=20, ge=1, le=100)
+) -> dict[str, Any]:
+    try:
+        similar = await lastfm_client.get_similar_artists(artist, limit)
+    except LastFmConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except LastFmError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"artist": artist, "similar": similar}
+
+
+@app.get("/api/lastfm/top/{artist}")
+async def api_lastfm_top(
+    artist: str, limit: int = Query(default=10, ge=1, le=100)
+) -> dict[str, Any]:
+    try:
+        tracks = await lastfm_client.get_artist_top_tracks(artist, limit)
+    except LastFmConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except LastFmError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"artist": artist, "tracks": tracks}
+
+
+@app.get("/api/lastfm/info/{artist}")
+async def api_lastfm_info(artist: str) -> dict[str, Any]:
+    try:
+        info = await lastfm_client.get_artist_info(artist)
+    except LastFmConfigurationError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except LastFmError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"artist": info}
 
 
 @app.post("/api/new-releases")
