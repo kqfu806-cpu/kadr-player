@@ -106,7 +106,9 @@ def test_signal_weights_and_skip_penalizes_nearest_tracks(tmp_path: Path) -> Non
     wave.store_embedding("unrelated", [0.0, 1.0], db_path)
 
     result = wave.record_signal("skipped", "skip", db_path)
-    wave.record_signal("liked", "like", db_path)
+    wave.record_signal(
+        "liked", "like", db_path, artist="Liked Artist", genre="rock"
+    )
     wave.record_signal("disliked", "dislike", db_path)
 
     assert result["weight"] == -1
@@ -119,6 +121,18 @@ def test_signal_weights_and_skip_penalizes_nearest_tracks(tmp_path: Path) -> Non
     assert weights[("liked", "like")] == 3
     assert weights[("disliked", "dislike")] == -5
     assert weights[("similar", "similar_skip")] == pytest.approx(-0.5 * wave.cosine_similarity([1, 0], [0.9, 0.1]))
+    with wave._connect(db_path) as connection:
+        like = connection.execute(
+            "SELECT track_id, artist, genre, timestamp FROM likes"
+        ).fetchone()
+    assert (like["track_id"], like["artist"], like["genre"]) == (
+        "liked",
+        "Liked Artist",
+        "rock",
+    )
+    assert like["timestamp"]
+
+    assert wave.liked_track_ids(db_path) == ["liked"]
 
 
 @pytest.mark.asyncio
@@ -281,6 +295,13 @@ def test_wave_endpoints_validate_and_save_feedback(client: TestClient) -> None:
     )
     assert liked.status_code == 200
     assert liked.json()["weight"] == 3
+    assert client.get("/api/wave/likes").json()["track_ids"] == ["track-1"]
+
+    disliked = client.post(
+        "/api/wave/signal", json={"track_id": "track-1", "signal": "dislike"}
+    )
+    assert disliked.status_code == 200
+    assert client.get("/api/wave/likes").json()["track_ids"] == []
 
 
 @pytest.mark.asyncio

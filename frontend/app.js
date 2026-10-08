@@ -163,6 +163,7 @@
     waveGeneration: 0,
     waveReason: "",
     waveLoading: false,
+    likedTracks: new Set(),
     lyricPauseUntil: 0,
     coverScrollLock: false,
     coverScrollTimer: 0,
@@ -971,6 +972,7 @@
     const track = currentTrack();
     const local = !!track && !track.external;
     const favorite = local && state.favorites.has(track.id);
+    const liked = local && state.likedTracks.has(track.id);
     const button = $("btnFavorite");
     if (button) {
       button.disabled = !local;
@@ -978,6 +980,14 @@
       button.setAttribute("aria-pressed", String(favorite));
       button.title = favorite ? "Убрать из избранного" : "В избранное";
       button.setAttribute("aria-label", button.title);
+    }
+    const likeButton = $("btnLike");
+    if (likeButton) {
+      likeButton.disabled = !local;
+      likeButton.classList.toggle("on", liked);
+      likeButton.setAttribute("aria-pressed", String(liked));
+      likeButton.title = liked ? "Убрать лайк" : "Нравится";
+      likeButton.setAttribute("aria-label", likeButton.title);
     }
     const dislike = $("btnDislike");
     if (dislike) dislike.disabled = !local;
@@ -990,17 +1000,34 @@
     }
   }
 
+  async function loadWaveLikes() {
+    try {
+      const result = await api("/api/wave/likes");
+      state.likedTracks = new Set(result.track_ids || []);
+      syncFavoriteControls();
+    } catch (error) {
+      console.warn("Wave likes could not be loaded:", error.message);
+    }
+  }
+
   function toggleCurrentFavorite() {
     const track = currentTrack();
     if (!track || track.external) return;
     if (state.favorites.has(track.id)) state.favorites.delete(track.id);
     else state.favorites.add(track.id);
-    if (state.favorites.has(track.id)) sendWaveSignal("like");
     try { localStorage.setItem(favoritesKey, JSON.stringify([...state.favorites])); } catch (_) {}
     if (state.favoritesOnly && !state.favorites.has(track.id)) {
       $("playlistView").scrollTop = 0;
     }
     renderPlaylist();
+  }
+
+  async function toggleCurrentLike() {
+    const track = currentTrack();
+    if (!track || track.external) return;
+    const signal = state.likedTracks.has(track.id) ? "dislike" : "like";
+    const result = await sendWaveSignal(signal);
+    if (result) toast(signal === "like" ? "Лайк сохранён" : "Лайк убран; учту меньше похожих");
   }
 
   function toggleFavoritesFilter() {
@@ -1189,13 +1216,21 @@
 
   function sendWaveSignal(signal) {
     const track = currentTrack();
-    if (!track || track.external) return;
+    if (!track || track.external) return Promise.resolve(null);
     const duration = getPosition();
-    if (signal === "skip" && duration >= 30) return;
-    api("/api/wave/signal", {
+    if (signal === "skip" && duration >= 30) return Promise.resolve(null);
+    return api("/api/wave/signal", {
       method: "POST",
       body: JSON.stringify({ track_id: track.id, signal, duration }),
-    }).catch((error) => console.warn("Wave feedback was not saved:", error.message));
+    }).then((result) => {
+      if (signal === "like") state.likedTracks.add(track.id);
+      else if (signal === "dislike") state.likedTracks.delete(track.id);
+      syncFavoriteControls();
+      return result;
+    }).catch((error) => {
+      console.warn("Wave feedback was not saved:", error.message);
+      return null;
+    });
   }
 
   function onEnded() {
@@ -1530,6 +1565,7 @@
   // ---------- кнопки и горячие клавиши ----------
   $("btnPlay").addEventListener("click", togglePlay);
   $("btnFavorite").addEventListener("click", toggleCurrentFavorite);
+  $("btnLike")?.addEventListener("click", toggleCurrentLike);
   $("btnDislike")?.addEventListener("click", () => {
     const track = currentTrack();
     if (!track) return;
@@ -3696,6 +3732,7 @@
   // init
   vol.value = "85";
   applyVolume();
+  loadWaveLikes();
   loadHealth().then(() => {
     if (state.activeSection === "weekly") openWeekly();
     else if (state.activeSection === "stats") openStats();

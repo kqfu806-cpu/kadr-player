@@ -20,7 +20,7 @@
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
   <title>Курымдык</title>
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/static/styles.css?v=19" />
+  <link rel="stylesheet" href="/static/styles.css?v=20" />
   <link rel="icon" href="/static/icons/favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png" />
@@ -344,6 +344,9 @@
           <div class="player-track-info">
             <div class="now-title-row">
               <div class="now-title" id="nowTitle">—</div>
+              <button class="icon-btn sm like-btn" id="btnLike" type="button" title="Нравится" aria-label="Нравится" aria-pressed="false" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v10H4V10h3Zm3 10h7.2a2 2 0 0 0 1.95-1.56l1.6-7A2 2 0 0 0 18.8 9H14l.7-3.4A2.1 2.1 0 0 0 12.6 3L8 9v11Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>
+              </button>
               <button class="icon-btn sm favorite-btn" id="btnFavorite" type="button" title="В избранное" aria-label="Добавить в избранное" aria-pressed="false" disabled>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
               </button>
@@ -446,6 +449,6 @@
 
   <script src="/static/vendor/anime.js"></script>
   <script src="/static/i18n.js?v=1"></script>
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>

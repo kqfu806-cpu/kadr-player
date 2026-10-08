@@ -798,6 +798,11 @@ async def api_wave_queue(
     return await _wave_queue_result(count, exclude, mode, mood, language, balance)
 
 
+@app.get("/api/wave/likes")
+async def api_wave_likes() -> dict[str, list[str]]:
+    return {"track_ids": wave_engine.liked_track_ids()}
+
+
 @app.get("/api/wave/next")
 async def api_wave_next(
     mode: str = Query(default="new"),
@@ -828,7 +833,13 @@ async def api_wave_signal(body: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(400, "Некорректная длительность до пропуска")
         if not 0 <= duration < 30:
             raise HTTPException(400, "Пропуск учитывается только до 30 секунд")
-    return wave_engine.record_signal(track_id, signal)
+    track = library[track_id]
+    return wave_engine.record_signal(
+        track_id,
+        signal,
+        artist=track.artist,
+        genre=str(getattr(track, "genre", "") or ""),
+    )
 
 
 @app.post("/api/new-releases")

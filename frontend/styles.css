@@ -1109,7 +1109,7 @@ html:not(.collapsed) .rail-open { display: none !important; }
 .now-title-row { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
 .now-title-row .now-title { flex: 1; min-width: 0; }
 .favorite-btn, .favorite-filter { flex: 0 0 2rem; }
-.favorite-btn.on, .favorite-filter.on { color: var(--accent); background: rgba(255,255,255,0.14); }
+.like-btn.on, .favorite-btn.on, .favorite-filter.on { color: var(--accent); background: rgba(255,255,255,0.14); }
 .favorite-btn.on svg path, .favorite-filter.on svg path { fill: currentColor; }
 .favorite-filter svg, .favorite-btn svg { width: 1.1rem; height: 1.1rem; }
 .favorite-btn:disabled { opacity: 0.45; cursor: default; }

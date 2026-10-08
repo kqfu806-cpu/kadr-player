@@ -79,6 +79,16 @@ def _connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     )
     connection.execute(
         """
+        CREATE TABLE IF NOT EXISTS likes (
+            track_id TEXT PRIMARY KEY,
+            artist TEXT NOT NULL,
+            genre TEXT NOT NULL DEFAULT '',
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS track_embeddings (
             track_id TEXT PRIMARY KEY,
             vector BLOB NOT NULL,
@@ -669,6 +679,9 @@ def record_signal(
     track_id: str,
     signal: str,
     db_path: Path | None = None,
+    *,
+    artist: str = "",
+    genre: str = "",
 ) -> dict[str, Any]:
     if signal not in SIGNAL_WEIGHTS:
         raise ValueError(f"Unsupported wave signal: {signal}")
@@ -693,6 +706,20 @@ def record_signal(
             "INSERT INTO wave_signals (track_id, signal, weight, timestamp) VALUES (?, ?, ?, ?)",
             (track_id, signal, SIGNAL_WEIGHTS[signal], timestamp),
         )
+        if signal == "like":
+            connection.execute(
+                """
+                INSERT INTO likes (track_id, artist, genre, timestamp)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(track_id) DO UPDATE SET
+                    artist = excluded.artist,
+                    genre = excluded.genre,
+                    timestamp = excluded.timestamp
+                """,
+                (track_id, artist, genre, timestamp),
+            )
+        elif signal == "dislike":
+            connection.execute("DELETE FROM likes WHERE track_id = ?", (track_id,))
         for similar_id, similarity in related:
             connection.execute(
                 "INSERT INTO wave_signals (track_id, signal, weight, timestamp, related_to) "
@@ -705,6 +732,14 @@ def record_signal(
         "weight": SIGNAL_WEIGHTS[signal],
         "similar_tracks_updated": len(related),
     }
+
+
+def liked_track_ids(db_path: Path | None = None) -> list[str]:
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT track_id FROM likes ORDER BY timestamp DESC"
+        ).fetchall()
+    return [row["track_id"] for row in rows]
 
 
 def recent_tracks(db_path: Path | None = None, limit: int = 5) -> list[str]:
