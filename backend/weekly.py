@@ -302,22 +302,6 @@ def _rank_items(
     return ranked
 
 
-def _release_window(releases: dict[str, Any]) -> int:
-    items = releases.get("tracks", []) + releases.get("albums", [])
-    dates: list[date] = []
-    for item in items:
-        try:
-            dates.append(date.fromisoformat(str(item.get("date", ""))[:10]))
-        except (TypeError, ValueError):
-            continue
-    today = date.today()
-    if any(today - timedelta(days=7) <= released <= today for released in dates):
-        return 7
-    if any(today - timedelta(days=14) <= released <= today for released in dates):
-        return 14
-    return 30
-
-
 def _filter_release_window(
     releases: dict[str, Any], window_days: int
 ) -> dict[str, Any]:
@@ -391,13 +375,13 @@ async def get_weekly(
         ]
         try:
             releases = await fetch_weekly_releases(
-                client, artists, days=30, local_tracks=local_tracks
+                client, artists, days=30, local_tracks=local_tracks, lastfm=lastfm
             )
         except (httpx.HTTPError, ValueError) as exc:
             log.exception("Weekly Deezer release lookup failed")
             warnings.append(f"Deezer unavailable: {type(exc).__name__}")
             releases = {"tracks": [], "albums": [], "errors": [], "checked": 0}
-        window_days = _release_window(releases)
+        window_days = 30
         releases = _filter_release_window(releases, window_days)
         found = len(releases.get("tracks", [])) + len(releases.get("albums", []))
         log.info(

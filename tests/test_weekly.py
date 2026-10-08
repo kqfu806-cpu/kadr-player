@@ -152,7 +152,7 @@ async def test_weekly_checks_every_library_artist(
 
 
 @pytest.mark.asyncio
-async def test_weekly_expands_empty_window_until_releases_are_found(
+async def test_weekly_queries_and_filters_thirty_days(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(weekly, "CACHE_PATH", tmp_path / "weekly.json")
@@ -171,9 +171,13 @@ async def test_weekly_expands_empty_window_until_releases_are_found(
             "to": date.today().isoformat(),
             "errors": [],
             "tracks": [],
-            "albums": [{"artist": "Library Artist", "title": "Fresh Album"}]
-            if days == 14
-            else [],
+            "albums": [
+                {
+                    "artist": "Library Artist",
+                    "title": "Fresh Album",
+                    "date": (date.today() - timedelta(days=14)).isoformat(),
+                }
+            ],
         }
 
     monkeypatch.setattr(weekly, "fetch_weekly_releases", releases)
@@ -184,8 +188,8 @@ async def test_weekly_expands_empty_window_until_releases_are_found(
         [make_track()],
     )
 
-    assert checked_days == [7, 14]
-    assert result["window_days"] == 14
+    assert checked_days == [30]
+    assert result["window_days"] == 30
     assert [album["title"] for album in result["albums"]] == ["Fresh Album"]
 
 

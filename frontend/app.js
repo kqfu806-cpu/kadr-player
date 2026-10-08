@@ -2967,34 +2967,32 @@
     const tracks = (data && data.tracks) || [];
     const albums = (data && data.albums) || [];
     const total = tracks.length + albums.length;
-    const windowDays = Number(data?.window_days) || 7;
-    const windowLabel = windowDays > 14
-      ? `За последние ${windowDays} дней (7 и 14 дней — пусто)`
-      : windowDays > 7
-        ? `За последние ${windowDays} дней (7 дней — пусто)`
-        : "За последние 7 дней";
+    const checkedArtists = Number(data?.artists_checked) || 0;
+    const windowLabel = "За последние 30 дней";
     if (!total) {
       tracksHost.innerHTML = "";
       albumsHost.innerHTML = "";
       status.textContent = data && data.warnings && data.warnings.length
-        ? "Не удалось проверить некоторые источники"
-        : `Новых релизов не найдено · ${windowLabel}`;
+        ? `Проверено ${checkedArtists} артистов · найдено 0 релизов · не все источники доступны`
+        : `Проверено ${checkedArtists} артистов · найдено 0 релизов · ${windowLabel}`;
       return;
     }
-    status.textContent = `${tracks.length} треков · ${albums.length} альбомов · ${windowLabel}`;
+    status.textContent = `Проверено ${checkedArtists} артистов · найдено ${total} релизов · ${windowLabel}`;
     const row = (release, withPreview) => {
       const releaseDate = new Date(`${release.date}T00:00:00`);
       const date = window.i18n
         ? window.i18n.date(releaseDate)
         : releaseDate.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+      const cover = weeklyCoverUrl(release.cover);
+      const url = weeklyExternalUrl(release.url);
       const preview = withPreview && release.preview
         ? `<audio class="release-preview" controls preload="none" src="${esc(release.preview)}" aria-label="Предпрослушать ${esc(release.title)}"></audio>`
         : "";
       return `<li class="release-row">` +
-        `${release.cover ? `<img class="release-cover" src="${esc(release.cover)}" alt="" loading="lazy">` : `<span class="release-cover missing" aria-hidden="true"></span>`}` +
+        `${cover ? `<img class="release-cover" src="${esc(cover)}" alt="" loading="lazy">` : `<span class="release-cover missing" aria-hidden="true"></span>`}` +
         `<div class="release-info"><a class="release-title" href="${esc(release.url)}" target="_blank" rel="noopener noreferrer">${esc(release.title)}</a>` +
         `<span class="release-artist">${esc(release.artist)} · ${esc(date)}</span>${preview}</div>` +
-        `<a class="artist-source" href="${esc(release.url)}" target="_blank" rel="noopener noreferrer" title="Открыть официальный релиз в Deezer" aria-label="Открыть ${esc(release.title)} в Deezer">↗</a>` +
+        `${url ? `<a class="artist-source" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="Открыть релиз в ${esc(release.source || "каталоге")}" aria-label="Открыть ${esc(release.title)} в ${esc(release.source || "каталоге")}">↗</a>` : ""}` +
         `</li>`;
     };
     tracksHost.innerHTML = tracks.map((release) => row(release, true)).join("");
@@ -3219,7 +3217,10 @@
   function weeklyExternalUrl(value) {
     try {
       const url = new URL(value);
-      return url.protocol === "https:" && url.hostname === "www.deezer.com" ? url.href : "";
+      return url.protocol === "https:" &&
+        ["www.deezer.com", "music.apple.com", "www.last.fm"].includes(url.hostname)
+        ? url.href
+        : "";
     } catch (_) {
       return "";
     }
@@ -3230,7 +3231,8 @@
       const url = new URL(value);
       const host = url.hostname.toLowerCase();
       return url.protocol === "https:" &&
-        (host === "deezer.com" || host.endsWith(".deezer.com") || host.endsWith(".dzcdn.net"))
+        (host === "deezer.com" || host.endsWith(".deezer.com") ||
+          host.endsWith(".dzcdn.net") || host.endsWith(".mzstatic.com"))
         ? url.href
         : "";
     } catch (_) {
@@ -3249,10 +3251,7 @@
   }
 
   function weeklyWindowLabel(data) {
-    const days = Number(data && data.window_days) || 7;
-    if (days > 14) return `За последние ${days} дней (7 и 14 дней — пусто)`;
-    if (days > 7) return `За последние ${days} дней (7 дней — пусто)`;
-    return "За последние 7 дней";
+    return "За последние 30 дней";
   }
 
   function renderWeeklyItems(data) {
@@ -3274,6 +3273,12 @@
       const saved = weeklySaved.has(key);
       const cover = weeklyCoverUrl(item.cover);
       const link = weeklyExternalUrl(item.url);
+      const source = item.source || "Deezer";
+      const linkLabel = source === "iTunes"
+        ? "Прослушать на iTunes ↗"
+        : source === "Last.fm"
+          ? "Открыть на Last.fm ↗"
+          : "Прослушать на Deezer ↗";
       let releaseDate = item.date || "Дата неизвестна";
       if (item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)) {
         releaseDate = new Date(`${item.date}T00:00:00`).toLocaleDateString("ru-RU", {
@@ -3287,7 +3292,7 @@
         `<div class="weekly-card-info"><span class="weekly-card-title" title="${esc(item.title)}">${esc(item.title)}</span>` +
         `<span class="weekly-card-meta">${esc(item.artist)} · ${esc(releaseDate)}</span></div>` +
         `<div class="weekly-card-actions">` +
-        `${link ? `<a class="btn ghost" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Прослушать на Deezer ↗</a>` : ""}` +
+        `${link ? `<a class="btn ghost" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a>` : ""}` +
         `${saved ? `<span class="weekly-saved">Отмечено · не скачано</span>` : `<button class="btn ghost" type="button" data-weekly-save="${esc(key)}">Сохранить в библиотеку</button>`}` +
         `</div></article>`;
     }).join("");

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from typing import Any
 
@@ -47,6 +48,8 @@ async def test_weekly_releases_separate_singles_and_albums_and_filter_library(
     monkeypatch.setattr(releases, "_artist_releases", releases_for_artist)
 
     class Response:
+        status_code = 200
+
         def raise_for_status(self) -> None:
             return None
 
@@ -104,9 +107,115 @@ async def test_weekly_releases_degrade_when_deezer_is_unavailable(
 
     assert result["tracks"] == []
     assert result["albums"] == []
-    assert len(result["errors"]) == 1
+    assert len(result["errors"]) == 2
     assert "Artist" in result["errors"][0]
-    assert any(record.name == "kadr.deezer" for record in caplog.records)
+    assert "iTunes" in result["errors"][1]
+    assert any(record.name == "kadr.weekly" for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_weekly_releases_fall_back_to_itunes_and_limit_to_thirty_days(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def no_deezer_releases(*_args: Any, **_kwargs: Any) -> tuple[list[dict[str, Any]], None]:
+        return [], None
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "artistName": "Кино",
+                        "trackName": "Новый сингл",
+                        "releaseDate": date.today().isoformat() + "T00:00:00Z",
+                        "trackViewUrl": "https://music.apple.com/track/1",
+                        "artworkUrl100": "https://example.test/cover.jpg",
+                        "previewUrl": "https://example.test/preview.mp3",
+                        "collectionName": "Новый сингл",
+                        "collectionType": "Album",
+                    },
+                    {
+                        "artistName": "Кино",
+                        "trackName": "Старый трек",
+                        "releaseDate": (date.today() - timedelta(days=31)).isoformat() + "T00:00:00Z",
+                        "trackViewUrl": "https://music.apple.com/track/2",
+                    },
+                ]
+            }
+
+    class Client:
+        async def get(self, url: str, **_kwargs: Any) -> Response:
+            assert "itunes.apple.com/search" in url
+            return Response()
+
+    monkeypatch.setattr(releases, "_artist_releases", no_deezer_releases)
+
+    with caplog.at_level(logging.INFO, logger="kadr.weekly"):
+        result = await releases.fetch_weekly_releases(
+            Client(),  # type: ignore[arg-type]
+            ["Кино"],
+            days=30,
+        )
+
+    assert [item["title"] for item in result["tracks"]] == ["Новый сингл"]
+    assert result["tracks"][0]["source"] == "iTunes"
+    assert result["checked"] == 1
+    assert any("iTunes" in record.message and "200" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_weekly_releases_fall_back_to_dated_lastfm_tracks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_deezer_releases(*_args: Any, **_kwargs: Any) -> tuple[list[dict[str, Any]], None]:
+        return [], None
+
+    class Client:
+        async def get(self, *_args: Any, **_kwargs: Any) -> Any:
+            class Response:
+                status_code = 200
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, Any]:
+                    return {"results": []}
+
+            return Response()
+
+    class LastFm:
+        async def get_artist_top_tracks(self, artist: str, limit: int) -> list[dict[str, Any]]:
+            assert (artist, limit) == ("Кино", 10)
+            return [
+                {
+                    "name": "Новый релиз",
+                    "releaseDate": date.today().isoformat(),
+                    "url": "https://www.last.fm/music/%D0%9A%D0%B8%D0%BD%D0%BE/_/%D0%9D%D0%BE%D0%B2%D1%8B%D0%B9",
+                },
+                {
+                    "name": "Старый релиз",
+                    "releaseDate": (date.today() - timedelta(days=31)).isoformat(),
+                    "url": "https://www.last.fm/music/%D0%9A%D0%B8%D0%BD%D0%BE/_/%D0%A1%D1%82%D0%B0%D1%80%D1%8B%D0%B9",
+                },
+            ]
+
+    monkeypatch.setattr(releases, "_artist_releases", no_deezer_releases)
+
+    result = await releases.fetch_weekly_releases(
+        Client(),  # type: ignore[arg-type]
+        ["Кино"],
+        days=30,
+        lastfm=LastFm(),
+    )
+
+    assert [item["title"] for item in result["tracks"]] == ["Новый релиз"]
+    assert result["tracks"][0]["source"] == "Last.fm"
 
 
 @pytest.mark.asyncio
