@@ -2769,6 +2769,11 @@
     }
     try { localStorage.setItem("kadr-theme", theme); } catch (_) {}
     const opacity = interfaceOpacity / 100;
+    const backgroundRgb = theme === "light" ? "245, 245, 247" : "10, 10, 12";
+    document.documentElement.style.setProperty(
+      "--bg-opacity",
+      `rgba(${backgroundRgb}, ${opacity})`
+    );
     const baseAlpha = theme === "light" ? 0.55 : 0.07;
     document.documentElement.style.setProperty(
       "--glass",

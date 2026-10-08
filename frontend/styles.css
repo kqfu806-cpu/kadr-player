@@ -12,6 +12,7 @@
   --cover: #e6dcc8;
   --ph: #cfc9c0;
   --danger: #e8a0a8;
+  --bg-opacity: rgba(10, 10, 12, 0.85);
   --glass: rgba(255, 255, 255, 0.07);
   --stroke: rgba(255, 255, 255, 0.18);
   --bg-bright: 0.55;
@@ -44,6 +45,7 @@ html[data-theme="light"] body,
   --clip: #2563eb;
   --cover: #1d4ed8;
   --ph: #4b5563;
+  --bg-opacity: rgba(245, 245, 247, 0.85);
   --bg-bright: 1;
 }
 
@@ -113,7 +115,7 @@ button { cursor: pointer; }
   position: relative;
   background:
     linear-gradient(135deg, rgba(255,255,255,0.14) 0%, transparent 45%),
-    var(--glass);
+    var(--bg-opacity);
   backdrop-filter: blur(20px) saturate(120%);
   -webkit-backdrop-filter: blur(20px) saturate(120%);
   border: 1px solid var(--stroke);
@@ -1762,7 +1764,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 1rem;
   border: 1px solid var(--stroke);
   border-radius: 1rem;
-  background: color-mix(in srgb, var(--glass) 82%, transparent);
+  background: var(--bg-opacity);
 }
 .profile-section h2 { margin: 0 0 0.75rem; font-size: 1rem; }
 .profile-list { list-style: none; margin: 0; padding: 0; }
@@ -1886,7 +1888,7 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   border: 1px solid var(--stroke);
   border-radius: 0.9rem;
-  background: color-mix(in srgb, var(--glass) 88%, transparent);
+  background: var(--bg-opacity);
 }
 .weekly-cover { display: block; width: 100%; aspect-ratio: 1.6; object-fit: cover; background: var(--glass); }
 .weekly-card-info { display: grid; gap: 0.22rem; padding: 0.8rem 0.9rem; }
