@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,6 +40,28 @@ def test_smoke_endpoints_return_success(client: TestClient, path: str) -> None:
     response = client.get(path)
 
     assert response.status_code == 200
+
+
+def test_unicode_music_folder_is_default_and_persists_after_restart(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    folder = tmp_path / "Музыка"
+    folder.mkdir()
+    monkeypatch.setattr(app_module, "APP_SETTINGS_DB_PATH", tmp_path / "settings.sqlite3")
+    monkeypatch.setattr(app_module, "DEFAULT_MUSIC_FOLDER", folder)
+    monkeypatch.setattr(app_module, "current_folder", None)
+    monkeypatch.setattr(app_module, "library", {})
+
+    assert client.get("/api/health").json()["folder"] == str(folder)
+
+    scanned = client.post("/api/scan", json={"path": str(folder)})
+    assert scanned.status_code == 200
+    assert scanned.json()["folder"] == str(folder.resolve())
+
+    monkeypatch.setattr(app_module, "current_folder", None)
+    assert client.get("/api/health").json()["folder"] == str(folder.resolve())
 
 
 @pytest.mark.parametrize(

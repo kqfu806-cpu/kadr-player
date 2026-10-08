@@ -30,6 +30,8 @@ from .cache_store import CacheStore
 from .config import (
     CACHE_DIR,
     COVERS_DIR,
+    APP_SETTINGS_DB_PATH,
+    DEFAULT_MUSIC_FOLDER,
     EMBEDDED_DIR,
     FRONTEND_DIR,
     HOST,
@@ -164,6 +166,36 @@ lastfm_client = LastFmClient()
 # Состояние библиотеки в памяти
 library: dict[str, Track] = {}
 current_folder: str | None = None
+
+
+def _saved_library_folder() -> str | None:
+    if not APP_SETTINGS_DB_PATH.is_file():
+        return None
+    try:
+        with sqlite3.connect(APP_SETTINGS_DB_PATH) as connection:
+            row = connection.execute(
+                "SELECT value FROM app_settings WHERE key = 'library_folder'"
+            ).fetchone()
+        return str(row[0]) if row and row[0] else None
+    except sqlite3.Error:
+        logging.getLogger("kadr.errors").exception("Could not read saved music folder")
+        return None
+
+
+def _save_library_folder(folder: str) -> None:
+    try:
+        APP_SETTINGS_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(APP_SETTINGS_DB_PATH) as connection:
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            connection.execute(
+                "INSERT INTO app_settings (key, value) VALUES ('library_folder', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (folder,),
+            )
+    except sqlite3.Error:
+        logging.getLogger("kadr.errors").exception("Could not save music folder")
 resolve_task: asyncio.Task[Any] | None = None
 
 http_client: httpx.AsyncClient | None = None
@@ -333,7 +365,9 @@ async def health() -> dict[str, Any]:
     await ollama.refresh_status(_client())
     return {
         "ok": True,
-        "folder": current_folder,
+        "folder": current_folder or _saved_library_folder() or (
+            str(DEFAULT_MUSIC_FOLDER) if DEFAULT_MUSIC_FOLDER.is_dir() else None
+        ),
         "tracks": len(library),
         "ollama": ollama.status.to_dict(),
     }
@@ -863,17 +897,19 @@ async def get_library() -> dict[str, Any]:
 async def scan(body: dict[str, Any]) -> dict[str, Any]:
     """Сканируем папку с музыкой. Резолв клипов — ленивый, по запросу."""
     global library, current_folder
-    folder = (body or {}).get("path") or ""
-    folder = str(folder).strip().strip('"')
-    if not folder:
+    folder_value = (body or {}).get("path") or ""
+    folder_value = str(folder_value).strip().strip('"')
+    if not folder_value:
         raise HTTPException(400, "Укажите путь к папке")
-    p = Path(folder)
+    p = Path(folder_value).expanduser()
     if not p.exists() or not p.is_dir():
-        raise HTTPException(400, f"Папка не найдена: {folder}")
+        raise HTTPException(400, f"Папка не найдена: {folder_value}")
 
-    tracks = scan_folder(str(p.resolve()))
+    resolved_folder = str(p.resolve())
+    tracks = scan_folder(resolved_folder)
     library = {t.id: t for t in tracks}
-    current_folder = str(p.resolve())
+    current_folder = resolved_folder
+    _save_library_folder(current_folder)
     return {
         "folder": current_folder,
         "count": len(tracks),

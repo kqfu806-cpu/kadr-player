@@ -1654,8 +1654,10 @@
           const lib = await api("/api/library");
           applyLibrary(lib);
         } else {
-          let path = "";
-          try { path = localStorage.getItem(libraryPathKey) || ""; } catch (_) {}
+          let path = h.folder || "";
+          if (!path) {
+            try { path = localStorage.getItem(libraryPathKey) || ""; } catch (_) {}
+          }
           if (!path) {
             try {
               const roots = await api("/api/fs/roots");
@@ -1969,6 +1971,7 @@
     $("modal").classList.add("hidden");
   }
   $("btnBrowse").addEventListener("click", openModal);
+  $("btnBrowseSettings")?.addEventListener("click", openModal);
   $("btnBrowseHero").addEventListener("click", openModal);
   $("modalClose").addEventListener("click", closeModal);
   $("modal").addEventListener("click", (e) => {

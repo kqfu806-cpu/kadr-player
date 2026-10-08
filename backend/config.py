@@ -13,6 +13,8 @@ LYRICS_DIR = CACHE_DIR / "lyrics"
 MATCHES_PATH = CACHE_DIR / "matches.json"
 INDEX_PATH = CACHE_DIR / "index.json"
 STATS_DB_PATH = CACHE_DIR / "stats.sqlite3"
+APP_SETTINGS_DB_PATH = CACHE_DIR / "app_settings.sqlite3"
+DEFAULT_MUSIC_FOLDER = Path.home() / "Music" / "Музыка"
 LOG_DIR = CACHE_DIR / "logs"
 
 HOST = "127.0.0.1"

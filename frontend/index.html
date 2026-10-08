@@ -61,13 +61,13 @@
         <div class="global-search-results hidden" id="globalSearchResults" role="listbox" aria-label="Результаты поиска"></div>
       </div>
 
-      <div class="folder-chip" id="folderChip" title="Текущая папка">
+      <div class="folder-chip" id="folderChip" title="Текущая музыкальная папка">
         <span class="muted">Папка не выбрана</span>
       </div>
 
       <div class="top-actions">
         <button class="btn ghost" id="btnInstall" title="Установить как приложение" hidden>На рабочий стол</button>
-        <button class="btn ghost" id="btnBrowse" title="Выбрать папку с музыкой">Папка…</button>
+        <button class="btn ghost" id="btnBrowse" title="Сменить музыкальную папку">Сменить папку</button>
         <button type="button" class="btn ghost" id="btnTheme" title="Тема" aria-label="Тема">☾</button>
         <button type="button" class="btn ghost" id="btnThemeSettings" title="Настроить оформление" aria-label="Настроить оформление" aria-expanded="false">⚙</button>
         <button class="btn ghost" id="btnRefresh" title="Пересканировать клипы и обложки">Обновить клипы</button>
@@ -101,6 +101,10 @@
         <label for="interfaceOpacity">Прозрачность интерфейса
           <span class="theme-opacity-control"><input id="interfaceOpacity" type="range" min="30" max="100" step="5" value="85"><output id="interfaceOpacityValue">85%</output></span>
         </label>
+        <div class="theme-setting-folder">
+          <span>Музыкальная папка</span>
+          <button class="btn ghost" id="btnBrowseSettings" type="button">Сменить папку</button>
+        </div>
       </section>
     </header>
 
