@@ -158,6 +158,7 @@
     waveBalance: waveSettings.balance,
     waveQueue: [],
     waveSeen: new Set(),
+    waveGeneration: 0,
     waveReason: "",
     waveLoading: false,
     lyricPauseUntil: 0,
@@ -680,7 +681,9 @@
     if (fsTitle) fsTitle.textContent = t.title;
     if (fsArtist) fsArtist.textContent = t.artist;
     $("nowAlbum").textContent = [t.album, t.year].filter(Boolean).join(" · ");
-    $("waveReason").textContent = fromWave ? state.waveReason : "";
+    $("waveReason").textContent = fromWave
+      ? `Причина: ${state.waveReason || "подборка по твоим вкусам"}`
+      : "";
     $("nowReason").textContent = "";
     document.title = `${t.artist} — ${t.title} · Курымдык`;
     updateNowPlaying();
@@ -1006,6 +1009,7 @@
 
   function setWaveMode(enabled) {
     state.waveMode = enabled;
+    if (!enabled) state.waveGeneration++;
     const button = $("btnWave");
     const miniButton = $("btnPlayerWave");
     if (button) {
@@ -1026,12 +1030,12 @@
     }
   }
 
-  async function fetchWaveQueue() {
+  async function fetchWaveQueue(generation) {
     const recent = [...state.waveSeen].slice(-30);
     const current = currentTrack();
     if (current && !recent.includes(current.id)) recent.push(current.id);
     const query = new URLSearchParams({
-      count: "10",
+      count: "1",
       exclude: recent.join(","),
       mode: state.waveModeKey,
       mood: state.waveMood,
@@ -1040,44 +1044,56 @@
     });
     if (!state.waveMood) query.delete("mood");
     if (!state.waveLanguage) query.delete("language");
-    const response = await api(`/api/wave/queue?${query.toString()}`);
-    state.waveQueue.push(...(response.items || []));
+    const response = await api(`/api/wave/next?${query.toString()}`);
+    if (generation !== state.waveGeneration) return;
+    if (response.track) state.waveQueue.push(response.track);
   }
 
   async function playWaveNext() {
     if (!state.waveMode || state.waveLoading) return;
     state.waveLoading = true;
+    const generation = state.waveGeneration;
     try {
-      if (!state.waveQueue.length) await fetchWaveQueue();
-      if (!state.waveQueue.length && state.waveSeen.size >= state.tracks.length) {
-        state.waveSeen.clear();
-        const current = currentTrack();
-        if (current) state.waveSeen.add(current.id);
-        await fetchWaveQueue();
-      }
-      const item = state.waveQueue.shift();
-      if (!item) {
-        setWaveMode(false);
-        toast("Не удалось подобрать следующий трек для волны");
+      let retriedAfterReset = false;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        if (!state.waveQueue.length) {
+          try {
+            await fetchWaveQueue(generation);
+          } catch (error) {
+            if (generation !== state.waveGeneration) return;
+            if (!retriedAfterReset && state.waveSeen.size) {
+              state.waveSeen.clear();
+              const current = currentTrack();
+              if (current) state.waveSeen.add(current.id);
+              retriedAfterReset = true;
+              continue;
+            }
+            throw error;
+          }
+        }
+        if (generation !== state.waveGeneration) return;
+        const item = state.waveQueue.shift();
+        if (!item) break;
+        state.waveSeen.add(item.id);
+        if (item.external) {
+          playExternalWaveItem(item);
+          return;
+        }
+        const index = state.tracks.findIndex((track) => track.id === item.id);
+        if (index < 0) continue;
+        state.waveReason = item.reason || "подборка по твоим вкусам";
+        playIndex(index, true);
         return;
       }
-      if (item.external) {
-        playExternalWaveItem(item);
-        return;
-      }
-      const index = state.tracks.findIndex((track) => track.id === item.id);
-      if (index < 0) {
-        toast("Рекомендованный трек больше не в библиотеке");
-        return;
-      }
-      state.waveSeen.add(item.id);
-      state.waveReason = item.reason || "подборка по твоим вкусам";
-      playIndex(index, true);
+      setWaveMode(false);
+      toast("Не удалось подобрать следующий трек для волны");
     } catch (error) {
+      if (generation !== state.waveGeneration) return;
       setWaveMode(false);
       toast(`Моя волна: ${error.message}`);
     } finally {
       state.waveLoading = false;
+      if (state.waveMode && generation !== state.waveGeneration) playWaveNext();
     }
   }
 
@@ -1116,7 +1132,7 @@
     $("nowTitle").textContent = item.title;
     $("nowArtist").textContent = item.artist;
     $("nowAlbum").textContent = "Предпрослушивание · Deezer";
-    $("waveReason").textContent = item.reason || "Новый трек по вашим вкусам";
+    $("waveReason").textContent = `Причина: ${item.reason || "новый трек по вашим вкусам"}`;
     $("nowReason").textContent = "30-секундный фрагмент";
     document.title = `${item.artist} — ${item.title} · Курымдык`;
     $("playerCover").src = item.cover
@@ -1135,6 +1151,7 @@
   function selectWaveMode(mode) {
     if (!waveModes.includes(mode)) return;
     state.waveModeKey = mode;
+    state.waveGeneration++;
     try { localStorage.setItem(waveModeKey, mode); } catch (_) {}
     document.querySelectorAll("[data-wave-mode]").forEach((button) => {
       const active = button.dataset.waveMode === mode;
@@ -1161,6 +1178,7 @@
     }
     state.waveSeen.clear();
     state.waveQueue = [];
+    state.waveGeneration++;
     const current = currentTrack();
     if (current) state.waveSeen.add(current.id);
     setWaveMode(true);
