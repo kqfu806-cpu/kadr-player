@@ -145,6 +145,8 @@
     lyricIndex: -1,
     lyricFollow: true,
     lyricUserScroll: false,
+    lyricScrollRaf: 0,
+    lyricScrollIndex: -1,
     deferredInstall: null,
     beat: 0,
     collapsed: false,
@@ -2075,6 +2077,8 @@
     state.lyrics = null;
     state.lyricIndex = -1;
     state.lyricFollow = true;
+    if (state.lyricScrollRaf) cancelAnimationFrame(state.lyricScrollRaf);
+    state.lyricScrollRaf = 0;
     panel.classList.add("hidden");
     panel.classList.remove("manual");
     if (follow) follow.classList.add("hidden");
@@ -2135,6 +2139,16 @@
     win.scrollTop = Math.max(0, top);
   }
 
+  function scheduleLyricsScroll(idx) {
+    state.lyricScrollIndex = idx;
+    if (state.lyricScrollRaf) return;
+    state.lyricScrollRaf = requestAnimationFrame(() => {
+      const nextIndex = state.lyricScrollIndex;
+      state.lyricScrollRaf = 0;
+      moveLyrics(nextIndex);
+    });
+  }
+
   function syncLyrics(pos) {
     const data = state.lyrics;
     const scroll = $("lyricsScroll");
@@ -2158,13 +2172,13 @@
         el.classList.toggle("past", i < idx && !far);
         el.classList.toggle("far", far);
       });
-      if (!paused) moveLyrics(idx);
+      if (!paused) scheduleLyricsScroll(idx);
     }
     if (!paused) {
       const panel = $("lyricsPanel");
       if (panel.classList.contains("manual")) {
         panel.classList.remove("manual");
-        moveLyrics(idx);
+        scheduleLyricsScroll(idx);
         const follow = $("btnLyricsFollow");
         if (follow) follow.classList.add("hidden");
       }

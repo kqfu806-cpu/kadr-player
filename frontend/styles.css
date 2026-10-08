@@ -992,6 +992,7 @@ html:not(.collapsed) .rail-open { display: none !important; }
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -1058,14 +1059,14 @@ html:not(.collapsed) .rail-open { display: none !important; }
   opacity: 0.22;
   filter: blur(0.12rem);
   transform: scale(0.96);
-  transition: opacity 0.4s ease, filter 0.4s ease, transform 0.4s ease;
+  transition: opacity 300ms ease, filter 300ms ease, transform 300ms ease;
   max-width: 90%;
   cursor: pointer;
 }
 .lyric-line.active { opacity: 1; filter: blur(0); transform: scale(1.02); }
-.lyric-line.near   { opacity: 0.42; filter: blur(0.5px); transform: none; }
-.lyric-line.past   { opacity: 0.18; filter: blur(1.5px); transform: none; }
-.lyric-line.far    { opacity: 0.06; filter: blur(2.5px); display: none; }
+.lyric-line.near   { opacity: 0.5; filter: blur(0.5px); transform: none; }
+.lyric-line.past   { opacity: 0.5; filter: blur(1.5px); transform: none; }
+.lyric-line.far    { opacity: 0.5; filter: blur(2.5px); }
 .lyrics.plain .lyric-line,
 .lyrics.plain .lyric-line.far {
   display: flex;
@@ -1073,6 +1074,7 @@ html:not(.collapsed) .rail-open { display: none !important; }
   opacity: 0.82;
   filter: none;
   transform: none;
+  transition: none;
   height: auto;
   padding: 0.2rem 0;
 }
