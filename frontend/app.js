@@ -539,6 +539,22 @@
     $("playlistView").scrollTop = 0;
     renderPlaylist();
   });
+  // ЗАДАЧА 10: если поле пустое или очищено крестиком (x) — сразу вернуть 1482 треков, без ручного сброса
+  $("search").addEventListener("search", () => {
+    // native type=search clear button fires search even if input already fired — ensure full library on empty
+    if (!$("search").value.trim()) {
+      $("playlistView").scrollTop = 0;
+      renderPlaylist();
+    }
+  });
+  // also handle Escape to clear search and show full library
+  $("search").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      $("search").value = "";
+      $("playlistView").scrollTop = 0;
+      renderPlaylist();
+    }
+  });
   $("playlistView").addEventListener(
     "scroll",
     () => {
