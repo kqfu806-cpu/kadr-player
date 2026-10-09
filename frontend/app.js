@@ -47,10 +47,10 @@
   let customAccentColor = readAccentPreference() === "cover" ? "" : readAccentPreference();
   let interfaceOpacity = readInterfaceOpacity();
   const displayModes = [
-    { id: "clipLyrics", label: "🎬 Клип и текст" },
+    { id: "clipLyrics", label: "🎬 Клип+текст" },
     { id: "clipOnly", label: "🎬 Только клип" },
-    { id: "coverLyrics", label: "🖼️ Обложка и текст" },
-    { id: "coverOnly", label: "🖼️ Только обложка" },
+    { id: "coverLyrics", label: "🖼️ Картинка+текст" },
+    { id: "coverOnly", label: "🖼️ Только картинка" },
     { id: "lyricsOnly", label: "📝 Только текст" },
   ];
   function readDisplayMode() {
@@ -912,8 +912,12 @@
     state.visualMode = mode;
     try { localStorage.setItem(displayModeStorageKey, mode); } catch (_) {}
     const current = displayModes.find((item) => item.id === mode);
-    $("displayModeToggle").textContent = current.label;
-    $("displayModeToggle").title = current.label;
+    const toggle = $("displayModeToggle");
+    if(toggle){ toggle.textContent = current.label; toggle.title = current.label; }
+    // active highlight for displayModes row
+    document.querySelectorAll("#displayModes [data-mode]").forEach(btn=>{
+      btn.classList.toggle("is-active", btn.dataset.mode===mode);
+    });
     applyDisplayMode();
   }
 
@@ -1680,6 +1684,22 @@
     const currentIndex = displayModes.findIndex((mode) => mode.id === state.visualMode);
     setDisplayMode(displayModes[(currentIndex + 1) % displayModes.length].id);
   });
+  // explicit mode buttons with active highlight, localStorage
+  document.querySelectorAll("#displayModes [data-mode]").forEach(btn=>{
+    btn.addEventListener("click", ()=> setDisplayMode(btn.dataset.mode));
+  });
+  // init highlight on load
+  try{
+    const savedMode = localStorage.getItem(displayModeStorageKey);
+    if(savedMode && displayModes.some(m=>m.id===savedMode)){
+      // apply active highlight after DOM ready
+      setTimeout(()=> setDisplayMode(savedMode), 0);
+    } else {
+      setTimeout(()=> {
+        document.querySelectorAll("#displayModes [data-mode]").forEach(b=> b.classList.toggle("is-active", b.dataset.mode===state.visualMode));
+      }, 0);
+    }
+  }catch(_){}
   setDisplayMode(state.visualMode);
   document.querySelectorAll("[data-wave-mode]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.waveMode === state.waveModeKey));
