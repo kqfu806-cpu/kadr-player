@@ -2552,6 +2552,7 @@
       const note =
         data.synced ? "" : `<div class="lyrics-note">Текст показан без временных меток</div>`;
       scroll.style.transform = "none";
+      // enhanced LRC [00:15.23] <00:15.50> word parsing already in backend parse_lrc; use karaoke-word with fallback
       scroll.innerHTML =
         note +
         data.lines
@@ -2561,7 +2562,7 @@
                 ? ln.words
                     .map(
                       (w, j) =>
-                        `<span class="lyric-word" data-t="${w.t}" data-j="${j}">${esc(w.text)}</span>`
+                        `<span class="karaoke-word lyric-word" data-t="${w.t}" data-j="${j}">${esc(w.text)}</span>`
                     )
                     .join(" ")
                 : esc(ln.text);
@@ -2644,25 +2645,40 @@
         });
       }
     }
-    // word-level highlight still runs outside RAF but throttled 100ms; plain text static already returned
+    // word-level karaoke highlight with 150ms accent glow, fallback to line if disabled or no words
     const curIdx = idx;
     const allNodes = scroll.querySelectorAll(".lyric-line");
     const line = data.lines[curIdx];
     const node = allNodes[curIdx];
     const nowW = performance.now();
-    if (line && line.words && line.words.length && node && nowW - (state._wordTick || 0) > 100) {
+    const karaokeOn = state.karaokeEnabled !== false;
+    if (line && line.words && line.words.length && node && karaokeOn && nowW - (state._wordTick || 0) > 100) {
       state._wordTick = nowW;
       let wi = 0;
       for (let j = 0; j < line.words.length; j++) {
         if (line.words[j].t <= pos + 0.02) wi = j;
       }
-      node.querySelectorAll(".lyric-word").forEach((el, j) => {
-        el.classList.toggle("active-word", j === wi);
-        el.classList.toggle("on", j === wi);
-        el.classList.toggle("dimmed", j !== wi);
+      node.querySelectorAll(".karaoke-word, .lyric-word").forEach((el, j) => {
+        const isActive = j === wi;
+        el.classList.toggle("active", isActive);
+        el.classList.toggle("active-word", isActive);
+        el.classList.toggle("on", isActive);
+        el.classList.toggle("dimmed", !isActive);
+        // 150ms accent glow via CSS transition already
       });
       const fill = ((wi + 1) / line.words.length) * 100;
       node.style.setProperty("--fill", fill + "%");
+    } else if (line && line.words && line.words.length && node && !karaokeOn) {
+      // fallback line highlight when karaoke off: clear word active
+      node.querySelectorAll(".karaoke-word, .lyric-word").forEach(el=>{
+        el.classList.remove("active","active-word","on");
+        el.classList.remove("dimmed");
+      });
+      const next = data.lines[curIdx + 1];
+      const t0 = line.t || 0;
+      const t1 = next && next.t != null ? next.t : t0 + 4;
+      const p = Math.max(0, Math.min(1, (pos - t0) / Math.max(0.2, t1 - t0)));
+      node.style.setProperty("--fill", p * 100 + "%");
     } else if (node && line && !(line.words && line.words.length)) {
       const next = data.lines[curIdx + 1];
       const t0 = line.t || 0;
@@ -2830,6 +2846,31 @@
     state.lyricIndex = -1;
     syncLyrics(getPosition());
   });
+
+  // Karaoke toggle: Вкл/Выкл word highlight, fallback line
+  (() => {
+    const karaokeKey = "kadr-karaoke-enabled";
+    let enabled = true;
+    try { const v = localStorage.getItem(karaokeKey); if(v==="0"||v==="false") enabled=false; } catch(_){}
+    state.karaokeEnabled = enabled;
+    const btn = $("karaokeToggle");
+    const panel = $("lyricsPanel");
+    function renderKaraokeState(){
+      if(btn) btn.textContent = enabled ? "Караоке: Вкл" : "Караоке: Выкл";
+      if(panel) panel.classList.toggle("karaoke-off", !enabled);
+    }
+    renderKaraokeState();
+    btn?.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      enabled = !enabled;
+      state.karaokeEnabled = enabled;
+      try{ localStorage.setItem(karaokeKey, enabled?"1":"0"); }catch(_){}
+      renderKaraokeState();
+      // re-sync to apply fallback
+      syncLyrics(getPosition());
+    });
+    // also allow external toggle via display
+  })();
 
   // ---------- инерция плейлиста + свайп сцены (transform/opacity) ----------
   (function playlistInertia() {

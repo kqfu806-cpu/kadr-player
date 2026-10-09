@@ -1028,6 +1028,29 @@ html:not(.collapsed) .rail-open { display: none !important; }
   text-shadow: 0 0 0.6em rgba(var(--glow), 0.45);
 }
 .lyric-word.dimmed { opacity: 0.5; }
+/* Karaoke word highlight 150ms accent glow, fallback line */
+.karaoke-word {
+  display: inline;
+  padding: 0 0.06em;
+  transition: color 150ms ease, text-shadow 150ms ease, transform 150ms ease;
+}
+.karaoke-word.active {
+  color: var(--accent);
+  text-shadow: 0 0 0.7em rgba(var(--glow), 0.65), 0 0 1.2em rgba(var(--glow), 0.45);
+  transform: scale(1.06);
+}
+.karaoke-word.dimmed { opacity: 0.55; }
+.karaoke-toggle {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.6rem;
+  z-index: 22;
+  pointer-events: auto;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.55rem;
+}
+.lyrics.karaoke-off .karaoke-word.active { color: inherit; text-shadow: none; transform: none; }
+.lyrics.karaoke-off .lyric-line.active { /* fallback line highlight when karaoke off */ }
 .lyrics-note {
   font-size: 0.72rem;
   font-weight: 500;
