@@ -3284,22 +3284,45 @@
     const accentSelect = $("accentChoice");
     const opacitySlider = $("interfaceOpacity");
     const opacityValue = $("interfaceOpacityValue");
+    const presetKey = "kadr-theme-preset";
+    const presets = ["dark","light","cyberpunk","samurai","dragon","auto"];
     let themeMode = "dark";
     try {
-      const saved = localStorage.getItem(themeModeStorageKey) || localStorage.getItem("kadr-theme");
-      if (["dark", "light", "auto"].includes(saved)) themeMode = saved;
+      const savedPreset = localStorage.getItem(presetKey);
+      const saved = savedPreset || localStorage.getItem(themeModeStorageKey) || localStorage.getItem("kadr-theme");
+      if (presets.includes(saved)) themeMode = saved;
+      else if (["dark", "light", "auto"].includes(saved)) themeMode = saved;
     } catch (_) {}
     const themeForMode = (mode) => mode === "auto"
       ? (new Date().getHours() >= 7 && new Date().getHours() < 19 ? "light" : "dark")
       : mode;
-    const applyThemeMode = (mode, persist = true) => {
-      if (!["dark", "light", "auto"].includes(mode)) return;
-      themeMode = mode;
-      applyTheme(themeForMode(mode));
-      if (themeSelect) themeSelect.value = mode;
-      if (persist) {
-        try { localStorage.setItem(themeModeStorageKey, mode); } catch (_) {}
+    // applyPreset handles CSS variables and data-theme per spec: Dark/Light/Cyberpunk #0a0e27 #00ffff #ff00ff neon / Samurai #1a1410 #c9a961 #8b0000 serif / Dragon #1a0f0f #d4af37 #7b1a1a scale
+    function applyPreset(preset, persist=true){
+      if(!presets.includes(preset)) return;
+      themeMode = preset;
+      let effective = preset;
+      if(preset==="auto") effective = themeForMode("auto");
+      // map preset to data-theme value
+      document.documentElement.setAttribute("data-theme", effective);
+      // store
+      if(persist){ try{ localStorage.setItem(presetKey, preset); localStorage.setItem(themeModeStorageKey, preset); }catch(_){} }
+      // update UI highlights
+      document.querySelectorAll(".theme-preset-btn").forEach(b=>{
+        b.classList.toggle("is-active", b.dataset.preset===preset);
+      });
+      // also keep select synced for dark/light/auto
+      if(themeSelect){
+        if(["dark","light","auto"].includes(preset)) themeSelect.value=preset;
+        else themeSelect.value = effective;
       }
+      // apply theme to ensure glass/opacity etc
+      applyTheme(effective);
+      // for cyberpunk neon, samurai serif, dragon scale: applyPreset already set data-theme so CSS takes effect
+      // trigger repaint
+    }
+    const applyThemeMode = (mode, persist = true) => {
+      if (!presets.includes(mode)) return;
+      applyPreset(mode, persist);
     };
 
     applyAccent(readAccentPreference());
@@ -3307,6 +3330,12 @@
     if (themeSelect) {
       themeSelect.addEventListener("change", () => applyThemeMode(themeSelect.value));
     }
+    // preset preview squares
+    document.querySelectorAll("[data-preset]").forEach(btn=>{
+      btn.addEventListener("click", ()=> applyPreset(btn.dataset.preset));
+    });
+    // initial preset apply without persist to set correct UI
+    applyPreset(themeMode, false);
     if (accentSelect) {
       accentSelect.value = readAccentPreference();
       accentSelect.addEventListener("change", () => applyAccent(accentSelect.value, true));
@@ -3345,7 +3374,7 @@
       }
     });
     window.setInterval(() => {
-      if (themeMode === "auto") applyTheme(themeForMode(themeMode));
+      if (themeMode === "auto") applyPreset("auto", false);
     }, 60_000);
   })();
 

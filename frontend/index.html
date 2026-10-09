@@ -7,10 +7,12 @@
   <script>
     (function () {
       try {
-        var mode = localStorage.getItem("kadr-theme-mode") || localStorage.getItem("kadr-theme") || "dark";
+        var preset = localStorage.getItem("kadr-theme-preset") || localStorage.getItem("kadr-theme-mode") || localStorage.getItem("kadr-theme") || "dark";
         var hour = new Date().getHours();
-        var theme = mode === "auto" ? (hour >= 7 && hour < 19 ? "light" : "dark") : mode;
-        document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark");
+        var theme = preset === "auto" ? (hour >= 7 && hour < 19 ? "light" : "dark") : preset;
+        // keep original preset values: cyberpunk #0a0e27, samurai #1a1410, dragon #1a0f0f etc
+        if (["dark","light","cyberpunk","samurai","dragon"].indexOf(theme) === -1) theme = theme === "light" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", theme);
       } catch (e) {
         document.documentElement.setAttribute("data-theme", "dark");
       }
@@ -102,6 +104,17 @@
         <label for="interfaceOpacity">Прозрачность интерфейса
           <span class="theme-opacity-control"><input id="interfaceOpacity" type="range" min="30" max="100" step="5" value="85"><output id="interfaceOpacityValue">85%</output></span>
         </label>
+        <div class="theme-presets" id="themePresets" aria-label="Пресеты темы">
+          <span>Пресет</span>
+          <div class="theme-preset-row">
+            <button class="theme-preset-btn" type="button" data-preset="dark" title="Dark"><span class="theme-preview"><i style="background:#0a0a0c"></i><i style="background:#eceae6"></i></span> Dark</button>
+            <button class="theme-preset-btn" type="button" data-preset="light" title="Light"><span class="theme-preview"><i style="background:#f5f5f7"></i><i style="background:#2563eb"></i></span> Light</button>
+            <button class="theme-preset-btn" type="button" data-preset="cyberpunk" title="Cyberpunk #0a0e27 #00ffff #ff00ff neon"><span class="theme-preview"><i style="background:#0a0e27"></i><i style="background:#00ffff"></i><i style="background:#ff00ff"></i></span> Cyberpunk</button>
+            <button class="theme-preset-btn" type="button" data-preset="samurai" title="Samurai #1a1410 #c9a961 #8b0000 serif"><span class="theme-preview"><i style="background:#1a1410"></i><i style="background:#c9a961"></i><i style="background:#8b0000"></i></span> Samurai</button>
+            <button class="theme-preset-btn" type="button" data-preset="dragon" title="Dragon #1a0f0f #d4af37 #7b1a1a scale"><span class="theme-preview"><i style="background:#1a0f0f"></i><i style="background:#d4af37"></i><i style="background:#7b1a1a"></i></span> Dragon</button>
+            <button class="theme-preset-btn" type="button" data-preset="auto" title="Auto (по времени)"><span class="theme-preview"><i style="background:#0a0a0c"></i><i style="background:#f5f5f7"></i></span> Auto</button>
+          </div>
+        </div>
         <div class="theme-setting-folder">
           <span>Музыкальная папка</span>
           <button class="btn ghost" id="btnBrowseSettings" type="button">Сменить папку</button>

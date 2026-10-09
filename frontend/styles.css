@@ -2052,3 +2052,91 @@ input[type="range"]::-webkit-slider-thumb {
 .dj-crossfader { display: grid; gap: 0.3rem; font-size: 0.82rem; }
 #djRecord.recording { background: #c0392b; color: #fff; animation: pulse 1s infinite; }
 @keyframes pulse { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
+
+
+/* Theme presets: Dark/Light/Cyberpunk/Samurai/Dragon/Auto */
+:root, [data-theme="dark"] { }
+html[data-theme="cyberpunk"], [data-theme="cyberpunk"] {
+  --bg: #0a0e27;
+  --overlay: rgba(10, 14, 39, 0.52);
+  --text: #eaffff;
+  --muted: rgba(232, 255, 255, 0.62);
+  --accent: #00ffff;
+  --accent-1: #00ffff;
+  --accent-2: #ff00ff;
+  --accent-3: #7af5ff;
+  --glow: 0, 255, 255;
+  --glass: rgba(0, 255, 255, 0.07);
+  --stroke: rgba(0, 255, 255, 0.28);
+  --bg-opacity: rgba(10, 14, 39, 0.86);
+  --bg-bright: 0.6;
+  --font: "Orbitron", "Rajdhani", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html[data-theme="cyberpunk"] body {
+  text-shadow: 0 0 8px rgba(0,255,255,0.35);
+}
+html[data-theme="cyberpunk"] .glass {
+  box-shadow: 0 0 20px rgba(0,255,255,0.18), 0 0 40px rgba(255,0,255,0.12), 0 10px 40px rgba(0,0,0,0.45);
+  border-color: rgba(0,255,255,0.28);
+}
+
+html[data-theme="samurai"], [data-theme="samurai"] {
+  --bg: #1a1410;
+  --overlay: rgba(26, 20, 16, 0.45);
+  --text: #f5e6c8;
+  --muted: rgba(245, 230, 200, 0.62);
+  --accent: #c9a961;
+  --accent-1: #c9a961;
+  --accent-2: #8b0000;
+  --accent-3: #e8cfa0;
+  --glow: 201, 169, 97;
+  --glass: rgba(201, 169, 97, 0.08);
+  --stroke: rgba(201, 169, 97, 0.24);
+  --bg-opacity: rgba(26, 20, 16, 0.88);
+  --bg-bright: 0.55;
+  --font: "Noto Serif JP", "Yu Mincho", "Georgia", serif;
+  color-scheme: dark;
+}
+html[data-theme="dragon"], [data-theme="dragon"] {
+  --bg: #1a0f0f;
+  --overlay: rgba(26, 15, 15, 0.52);
+  --text: #fff2cc;
+  --muted: rgba(255, 242, 204, 0.62);
+  --accent: #d4af37;
+  --accent-1: #d4af37;
+  --accent-2: #7b1a1a;
+  --accent-3: #f0d27a;
+  --glow: 212, 175, 55;
+  --glass: rgba(212, 175, 55, 0.08);
+  --stroke: rgba(212, 175, 55, 0.24);
+  --bg-opacity: rgba(26, 15, 15, 0.88);
+  --bg-bright: 0.55;
+  --font: "Cinzel", "Trajan Pro", serif;
+  color-scheme: dark;
+}
+html[data-theme="dragon"] .app-bg::before {
+  content:"";
+  position: absolute; inset: 0;
+  background: radial-gradient(60% 50% at 50% 10%, rgba(212,175,55,0.18), transparent 60%);
+  pointer-events: none;
+}
+
+/* Theme preset chooser preview squares */
+.theme-presets { display: grid; gap: 0.5rem; }
+.theme-preset-row { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.theme-preset-btn {
+  display: grid; gap: 0.3rem; justify-items: center;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--stroke);
+  border-radius: 0.7rem;
+  background: var(--glass);
+  font-size: 0.72rem;
+  min-width: 5.2rem;
+}
+.theme-preset-btn.is-active { border-color: var(--accent-2); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
+.theme-preview { display: flex; gap: 3px; }
+.theme-preview i {
+  width: 0.9rem; height: 0.9rem; border-radius: 0.2rem; border: 1px solid rgba(255,255,255,0.2);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+}
