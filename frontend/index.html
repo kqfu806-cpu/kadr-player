@@ -480,6 +480,10 @@
       <div class="dj-decks">
         <section class="dj-deck" id="deckA" data-deck="A">
           <div class="deck-head"><span class="deck-label">Deck A</span><span class="deck-bpm muted" id="deckABpm">— BPM</span></div>
+          <div class="deck-load-row">
+            <button class="btn ghost" id="deckALoad" type="button">Загрузить из библиотеки</button>
+            <button class="btn ghost" id="deckASave" type="button" title="Сохранить Pitch/EQ/позицию">Запомнить переход</button>
+          </div>
           <div class="deck-drop" id="deckADrop" tabindex="0">Перетащите трек сюда или нажмите Загрузить</div>
           <canvas class="deck-waveform" id="waveformA" width="600" height="80" aria-label="Waveform A"></canvas>
           <div class="deck-title" id="deckATitle">—</div>
@@ -503,6 +507,10 @@
         </section>
         <section class="dj-deck" id="deckB" data-deck="B">
           <div class="deck-head"><span class="deck-label">Deck B</span><span class="deck-bpm muted" id="deckBBpm">— BPM</span></div>
+          <div class="deck-load-row">
+            <button class="btn ghost" id="deckBLoad" type="button">Загрузить из библиотеки</button>
+            <button class="btn ghost" id="deckBSave" type="button" title="Сохранить Pitch/EQ/позицию">Запомнить переход</button>
+          </div>
           <div class="deck-drop" id="deckBDrop" tabindex="0">Перетащите трек сюда или нажмите Загрузить</div>
           <canvas class="deck-waveform" id="waveformB" width="600" height="80" aria-label="Waveform B"></canvas>
           <div class="deck-title" id="deckBTitle">—</div>
@@ -529,6 +537,20 @@
         <label class="dj-crossfader">Crossfader <input type="range" id="crossfader" min="0" max="100" value="50" step="1"></label>
         <div class="dj-eq-master muted">EQ Low/Mid/High — на каждой деке · Pitch ±10% · MediaRecorder .webm</div>
       </div>
+    </section>
+  </div>
+
+  <div class="modal hidden" id="djLibraryModal" role="dialog" aria-modal="true" aria-labelledby="djLibraryTitle">
+    <section class="modal-card glass glare">
+      <header>
+        <h2 id="djLibraryTitle">Загрузить из библиотеки</h2>
+        <button class="icon-btn sm" id="djLibraryClose" type="button">✕</button>
+      </header>
+      <div class="dj-library-search">
+        <input id="djLibrarySearch" type="search" placeholder="Поиск по библиотеке…" autocomplete="off">
+      </div>
+      <ul class="dj-library-list" id="djLibraryList" role="listbox"></ul>
+      <footer><span class="muted">Выберите трек для загрузки на деку</span></footer>
     </section>
   </div>
 

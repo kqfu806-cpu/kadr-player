@@ -2434,8 +2434,97 @@
       toast("Запись микса началась (MediaRecorder .webm)");
     });
 
+    // BUG6: Загрузить из библиотеки modal
+    const djLibModal = $("djLibraryModal");
+    const djLibSearch = $("djLibrarySearch");
+    const djLibList = $("djLibraryList");
+    let djTargetDeck = "A";
+    function openDjLibrary(deck){
+      djTargetDeck = deck;
+      djLibModal?.classList.remove("hidden");
+      if(djLibSearch) { djLibSearch.value=""; djLibSearch.focus(); }
+      renderDjLibrary("");
+    }
+    function closeDjLibrary(){ djLibModal?.classList.add("hidden"); }
+    function renderDjLibrary(query){
+      if(!djLibList) return;
+      const q = query.trim().toLowerCase();
+      const tracks = (state.tracks || []).filter(t=>{
+        if(!q) return true;
+        return t.artist.toLowerCase().includes(q) || t.title.toLowerCase().includes(q) || (t.album&&t.album.toLowerCase().includes(q));
+      }).slice(0,60);
+      if(!tracks.length){
+        djLibList.innerHTML = `<li class="muted">Ничего не найдено</li>`;
+        return;
+      }
+      djLibList.innerHTML = tracks.map(t=> `<li data-dj-track="${t.id}"><span>${esc(t.artist)} — ${esc(t.title)}</span><small>${esc(t.album||"")}</small></li>`).join("");
+    }
+    $("deckALoad")?.addEventListener("click", ()=> openDjLibrary("A"));
+    $("deckBLoad")?.addEventListener("click", ()=> openDjLibrary("B"));
+    $("djLibraryClose")?.addEventListener("click", closeDjLibrary);
+    djLibModal?.addEventListener("click", e=>{ if(e.target===djLibModal) closeDjLibrary(); });
+    djLibSearch?.addEventListener("input", ()=> renderDjLibrary(djLibSearch.value));
+    djLibList?.addEventListener("click", e=>{
+      const li = e.target.closest("li[data-dj-track]");
+      if(!li) return;
+      loadDeck(djTargetDeck, li.dataset.djTrack);
+      closeDjLibrary();
+    });
+
+    // BUG6: Запомнить переход — save Pitch, EQ, position to localStorage
+    function saveTransition(deck){
+      const audioEl = deck==="A"? audioA:audioB;
+      const data = {
+        pitch: (deck==="A"? $("pitchA")?.value : $("pitchB")?.value) || "0",
+        eqLow: document.querySelector(`[data-eq="${deck}:low"]`)?.value || "0",
+        eqMid: document.querySelector(`[data-eq="${deck}:mid"]`)?.value || "0",
+        eqHigh: document.querySelector(`[data-eq="${deck}:high"]`)?.value || "0",
+        position: audioEl.currentTime || 0,
+        trackId: deckState[deck]?.track?.id || null,
+        at: new Date().toISOString()
+      };
+      try{ localStorage.setItem(`kadr-dj-transition-${deck}`, JSON.stringify(data)); }catch(_){}
+      // also generic for test
+      try{ localStorage.setItem("kadr-dj-transition", JSON.stringify({deck, ...data})); }catch(_){}
+      toast(`Переход Deck ${deck} сохранён`);
+    }
+    $("deckASave")?.addEventListener("click", ()=> saveTransition("A"));
+    $("deckBSave")?.addEventListener("click", ()=> saveTransition("B"));
+
+    // BUG6: dragenter/dragover/drop from explorer (files)
+    function enhanceDrop(deck){
+      const drop = document.getElementById(`deck${deck}Drop`);
+      if(!drop) return;
+      ["dragenter","dragover"].forEach(ev=> drop.addEventListener(ev, e=>{
+        e.preventDefault(); e.stopPropagation();
+        drop.classList.add("drag-over");
+      }));
+      ["dragleave","drop"].forEach(ev=> drop.addEventListener(ev, e=>{
+        if(ev==="dragleave" && e.relatedTarget && drop.contains(e.relatedTarget)) return;
+        drop.classList.remove("drag-over");
+      }));
+      drop.addEventListener("drop", async e=>{
+        // if files from explorer
+        if(e.dataTransfer.files && e.dataTransfer.files.length){
+          const file = e.dataTransfer.files[0];
+          if(file && file.type.startsWith("audio/")){
+            const url = URL.createObjectURL(file);
+            const audioEl = deck==="A"? audioA:audioB;
+            const titleEl = document.getElementById(`deck${deck}Title`);
+            deckState[deck].track = {id: file.name, artist:"", title: file.name, path: file.name};
+            if(titleEl) titleEl.textContent = file.name;
+            audioEl.src = url;
+            audioEl.load();
+            toast(`Deck ${deck} загружен файл: ${file.name}`);
+            return;
+          }
+        }
+      });
+    }
+    enhanceDrop("A"); enhanceDrop("B");
+
     // expose for tests
-    window.__dj = {loadDeck, deckState};
+    window.__dj = {loadDeck, deckState, openDjLibrary, saveTransition};
 
   })();
 

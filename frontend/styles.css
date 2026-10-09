@@ -2202,3 +2202,38 @@ html[data-theme="dragon"] .app-bg::before {
 .skeleton-line.short { height: 0.55rem; }
 @keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.85} }
+
+/* BUG6 DJ round knobs */
+.dj-deck input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: var(--glass);
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+}
+.dj-deck input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff, var(--accent-1));
+  border: 1px solid var(--stroke);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 0 6px rgba(var(--glow),0.35);
+  cursor: pointer;
+}
+.dj-deck input[type="range"]::-moz-range-thumb {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff, var(--accent-1));
+  border: 1px solid var(--stroke);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  cursor: pointer;
+}
+.deck-load-row { display:flex; gap:0.4rem; flex-wrap:wrap; }
+.dj-library-search { padding: 0.6rem 0; }
+.dj-library-search input { width:100%; padding:0.55rem 0.7rem; border:1px solid var(--stroke); border-radius:0.6rem; background: var(--bg-opacity); }
+.dj-library-list { max-height: 42vh; overflow:auto; list-style:none; margin:0; padding:0; display:grid; gap:0.3rem; }
+.dj-library-list li { padding:0.5rem 0.6rem; border:1px solid var(--stroke); border-radius:0.6rem; cursor:pointer; display:grid; gap:0.15rem; background: var(--glass); }
+.dj-library-list li:hover { background: color-mix(in srgb, var(--accent-1) 12%, var(--glass)); border-color: var(--accent-2); }
+.dj-library-list li span { font-size:0.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dj-library-list li small { color: var(--muted); font-size:0.68rem; }
