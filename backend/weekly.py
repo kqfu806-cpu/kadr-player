@@ -368,29 +368,73 @@ async def get_weekly(
             len(_library_artist_counts(tracks)),
             len(artists),
         )
+        # Ensure debug log captures start — required by Bug2
+        try:
+            DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as dbg:
+                dbg.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] weekly start: library_artists={len(_library_artist_counts(tracks))} artists_to_check={len(artists)}\n")
+        except OSError:
+            pass
         taste_tracks = await _lastfm_taste_tracks(lastfm, artists[:MAX_SEED_ARTISTS], warnings)
         local_tracks = [
             {"artist": track.artist, "title": track.title, "album": track.album}
             for track in tracks
         ]
-        try:
-            releases = await fetch_weekly_releases(
-                client, artists, days=30, local_tracks=local_tracks, lastfm=lastfm
-            )
-        except (httpx.HTTPError, ValueError) as exc:
-            log.exception("Weekly Deezer release lookup failed")
-            warnings.append(f"Deezer unavailable: {type(exc).__name__}")
-            releases = {"tracks": [], "albums": [], "errors": [], "checked": 0}
+        # FIX Bug2: expand window 7→14→30 days until at least 1 release found, fallback iTunes via releases.py
+        releases: dict[str, Any] | None = None
         window_days = 30
-        releases = _filter_release_window(releases, window_days)
-        found = len(releases.get("tracks", [])) + len(releases.get("albums", []))
-        log.info(
-            "Weekly window checked: days=%d artists=%d releases=%d api_errors=%s",
-            window_days,
-            releases.get("checked", len(artists)),
-            found,
-            releases.get("errors", []),
-        )
+        found = 0
+        last_errors: list[str] = []
+        for candidate_days in [7, 14, 30]:
+            try:
+                candidate = await fetch_weekly_releases(
+                    client, artists, days=candidate_days, local_tracks=local_tracks, lastfm=lastfm
+                )
+            except (httpx.HTTPError, ValueError) as exc:
+                log.exception("Weekly Deezer release lookup failed for %d days", candidate_days)
+                warnings.append(f"Deezer unavailable ({candidate_days}d): {type(exc).__name__}")
+                candidate = {"tracks": [], "albums": [], "errors": [str(exc)], "checked": 0, "from": None, "to": None}
+            filtered = _filter_release_window(candidate, candidate_days)
+            # extra filter: strictly within last 30 days (already enforced by candidate_days <=30)
+            cutoff30 = date.today() - timedelta(days=30)
+            for section in ("tracks", "albums"):
+                filtered[section] = [it for it in filtered.get(section, []) if date.fromisoformat(str(it.get("date", "")[:10])) >= cutoff30]
+            cand_found = len(filtered.get("tracks", [])) + len(filtered.get("albums", []))
+            cand_checked = filtered.get("checked", len(artists))
+            cand_errors = filtered.get("errors", [])
+            log.info(
+                "Weekly window checked: days=%d artists=%d releases=%d api_errors=%s",
+                candidate_days,
+                cand_checked,
+                cand_found,
+                cand_errors,
+            )
+            try:
+                with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as dbg:
+                    dbg.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] window {candidate_days}d: artists_checked={cand_checked} releases_found={cand_found} errors={cand_errors}\n")
+            except OSError:
+                pass
+            if cand_found > 0:
+                releases = filtered
+                window_days = candidate_days
+                found = cand_found
+                last_errors = cand_errors
+                break
+            # keep last attempt as fallback even if 0
+            releases = filtered
+            window_days = candidate_days
+            found = cand_found
+            last_errors = cand_errors
+            if candidate_days == 30:
+                break
+        if releases is None:
+            releases = {"tracks": [], "albums": [], "errors": [], "checked": len(artists)}
+        # Log final window result + iTunes fallback status (releases.py uses iTunes for empty artists)
+        try:
+            with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as dbg:
+                dbg.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] weekly final: window_days={window_days} artists_checked={releases.get('checked', len(artists))} releases_found={found} errors={last_errors}\n")
+        except OSError:
+            pass
         warnings.extend(str(error) for error in releases.get("errors", []))
         new_tracks = [
             item

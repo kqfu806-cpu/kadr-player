@@ -3370,6 +3370,10 @@
   }
 
   function weeklyWindowLabel(data) {
+    // FIX Bug2: show actual window used after 7→14→30 expansion, fallback to 30
+    const d = Number(data?.window_days) || 30;
+    if (d === 7) return "За последние 7 дней";
+    if (d === 14) return "За последние 14 дней";
     return "За последние 30 дней";
   }
 
