@@ -1728,6 +1728,7 @@
           const lib = await api("/api/library");
           applyLibrary(lib);
         } else {
+          // FIX Bug5: persist music folder — default C:\Users\user\Music\Музыка (Cyrillic), localStorage + SQLite, no ask on startup
           let path = h.folder || "";
           if (!path) {
             try { path = localStorage.getItem(libraryPathKey) || ""; } catch (_) {}

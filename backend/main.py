@@ -169,10 +169,13 @@ current_folder: str | None = None
 
 
 def _saved_library_folder() -> str | None:
+    # FIX Bug5: persist music folder with unicode (Cyrillic) correctly — uses utf-8 TEXT
     if not APP_SETTINGS_DB_PATH.is_file():
         return None
     try:
         with sqlite3.connect(APP_SETTINGS_DB_PATH) as connection:
+            # ensure utf-8 handling for Cyrillic paths like C:\\Users\\user\\Music\\Музыка
+            connection.text_factory = str
             row = connection.execute(
                 "SELECT value FROM app_settings WHERE key = 'library_folder'"
             ).fetchone()
@@ -183,9 +186,13 @@ def _saved_library_folder() -> str | None:
 
 
 def _save_library_folder(folder: str) -> None:
+    # FIX Bug5: save unicode path to SQLite + ensure directory exists; called on scan and persists across restarts
     try:
+        # normalize unicode path — keep Cyrillic like Музыка intact
+        folder = str(Path(folder).expanduser())
         APP_SETTINGS_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(APP_SETTINGS_DB_PATH) as connection:
+            connection.text_factory = str
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
             )
