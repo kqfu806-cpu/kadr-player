@@ -2869,6 +2869,7 @@
   const ICO_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 14.3A8.5 8.5 0 1 1 9.7 3 7 7 0 0 0 21 14.3z"/></svg>';
   const ICO_SUN = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>';
 
+  // FIX Bug10: proper light theme (#f5f5f7 bg, #1a1a1a text, blue accent), 6-8 accent colors, opacity slider, localStorage persist
   function applyTheme(t) {
     const theme = t === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", theme);
@@ -2879,8 +2880,16 @@
       const cover = $("coverImg");
       if (theme === "dark" && cover?.complete && cover.naturalWidth) paintFromCover(cover);
     }
-    try { localStorage.setItem("kadr-theme", theme); } catch (_) {}
+    try {
+      localStorage.setItem("kadr-theme", theme);
+      // also persist mode key for consistency
+      if (theme === "light" || theme === "dark") {
+        const mode = localStorage.getItem(themeModeStorageKey);
+        if (!mode) localStorage.setItem(themeModeStorageKey, theme);
+      }
+    } catch (_) {}
     const opacity = interfaceOpacity / 100;
+    // light: #f5f5f7 rgb 245,245,247 ; dark: #0a0a0c rgb 10,10,12
     const backgroundRgb = theme === "light" ? "245, 245, 247" : "10, 10, 12";
     document.documentElement.style.setProperty(
       "--bg-opacity",
