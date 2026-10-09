@@ -9,6 +9,7 @@ import random
 import sqlite3
 import struct
 import hashlib
+import pathlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,12 +17,23 @@ from typing import Any, Iterator
 
 import httpx
 
-from .config import STATS_DB_PATH
+from .config import ROOT, STATS_DB_PATH
 from .lastfm_client import LastFmClient, LastFmError
 from .ollama_ai import OllamaClient
 from .scanner import Track
 
 log = logging.getLogger("kadr.wave")
+# BUG9: logging to .tools/wave_debug.log with request/response/error
+try:
+    _wave_debug_path = ROOT / ".tools" / "wave_debug.log"
+    _wave_debug_path.parent.mkdir(parents=True, exist_ok=True)
+    if not any(isinstance(h, logging.FileHandler) and pathlib.Path(getattr(h, "baseFilename", "")).resolve() == _wave_debug_path.resolve() for h in log.handlers):
+        _wh = logging.FileHandler(_wave_debug_path, encoding="utf-8")
+        _wh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        log.addHandler(_wh)
+        log.setLevel(logging.INFO)
+except Exception:
+    pass
 SIGNAL_WEIGHTS = {"skip": -1.0, "complete": 1.0, "like": 3.0, "dislike": -5.0}
 EMBEDDING_BATCH_SIZE = 24
 MAX_TRACKS_PER_SIMILAR_SIGNAL = 3
@@ -499,17 +511,47 @@ async def recommend(
 
     remote: list[dict[str, Any]] = []
     if mode in {"new", "mix"} and lastfm:
-        remote = await _new_tracks(
-            tracks,
-            play_map,
-            lastfm,
-            client,
-            count if mode == "new" else round(count * 0.4),
-            mood_filter,
-            language_filter,
-            excluded,
-        )
+        try:
+            log.info("wave request mode=%s count=%d seeds=%s", mode, count, [t.artist for t in tracks[:2]])
+            remote = await _new_tracks(
+                tracks,
+                play_map,
+                lastfm,
+                client,
+                count if mode == "new" else round(count * 0.4),
+                mood_filter,
+                language_filter,
+                excluded,
+            )
+            log.info("wave response mode=%s remote=%d", mode, len(remote))
+        except Exception as exc:
+            log.exception("wave _new_tracks failed mode=%s: %s", mode, exc)
+            remote = []
+        if not remote:
+            log.warning("wave fallback: Last.fm/Deezer unavailable mode=%s, will fallback to local", mode)
+    else:
+        if mode in {"new","mix"} and not lastfm:
+            log.warning("wave no lastfm client mode=%s, fallback to local", mode)
     if mode == "new":
+        if not remote:
+            # BUG9: fallback to local library when Last.fm/Deezer unavailable
+            log.info("wave fallback to local for new mode, choosing library/forgotten")
+            # pick library/forgotten/favorite as fallback
+            fallback = [entry for entry in familiarity[:count] or discovery[:count]]
+            if not fallback:
+                fallback = discovery[:count]
+            items = [{**track.to_dict(), "reason": reason} for _, track, reason in fallback[:count]]
+            return {
+                "items": items,
+                "mode": mode,
+                "mood": mood,
+                "period": period,
+                "expected_mood": expected_mood,
+                "embeddings_ready": len(vectors) >= len(tracks),
+                "embedding_count": len(vectors),
+                "warning": "Last.fm/Deezer недоступны — показываю локальную подборку",
+                "fallback": True,
+            }
         return {
             "items": remote,
             "mode": mode,

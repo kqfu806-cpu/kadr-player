@@ -1158,6 +1158,19 @@
     if (!state.waveLanguage) query.delete("language");
     const response = await api(`/api/wave/next?${query.toString()}`);
     if (generation !== state.waveGeneration) return;
+    // BUG9: show understandable message if service unavailable + fallback via local library
+    if (response.warning) {
+      const msg = String(response.warning);
+      // if fallback: local library shown
+      if (response.fallback || msg.includes("недоступн") || msg.includes("локальн")) {
+        toast(msg);
+      } else if (response.track) {
+        // just warning but have track
+        console.info("wave warning:", msg);
+      } else {
+        toast(msg);
+      }
+    }
     if (response.track) state.waveQueue.push(response.track);
   }
 
