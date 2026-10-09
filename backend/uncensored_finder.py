@@ -7,12 +7,17 @@ import json
 import logging
 import re
 import subprocess
-import sys
+from pathlib import Path
 from typing import Any
 
 from rapidfuzz.fuzz import ratio
 
+from .config import ROOT
 from .scanner import Track
+
+AUDIODL_PATH = ROOT / "tools" / "audiodl.exe"
+AUDIODL_FALLBACK = "yt-dlp"
+
 
 log = logging.getLogger("kadr.uncensored")
 _EDITED = re.compile(r"\b(?:clean|radio[\s-]+edit|edited|censored)\b", re.I)
@@ -40,17 +45,17 @@ def _official_channel(channel: str, artist: str) -> bool:
     )
 
 
+def _resolve_audiodl() -> str:
+    if AUDIODL_PATH.is_file():
+        return str(AUDIODL_PATH)
+    return AUDIODL_FALLBACK
+
+
 def _search(query: str) -> list[dict[str, Any]]:
-    command = [
-        sys.executable,
-        "-m",
-        "yt_dlp",
-        "--dump-single-json",
-        "--skip-download",
-        "--no-warnings",
-        "--no-playlist",
-        f"ytsearch8:{query}",
-    ]
+    """Use tools/audiodl.exe --dump-json for ytsearch, fallback to yt-dlp."""
+    base_cmd = [_resolve_audiodl(), "--dump-json", "--skip-download", "--no-warnings", "--no-playlist"]
+    # audiodl.exe is yt-dlp wrapper; use ytsearch prefix
+    command = [*base_cmd, f"ytsearch3:{query}"]
     result = subprocess.run(
         command,
         capture_output=True,
@@ -64,9 +69,23 @@ def _search(query: str) -> list[dict[str, Any]]:
         raise RuntimeError(result.stderr.strip() or "yt-dlp search failed")
     if not result.stdout.strip():
         return []
-    data = json.loads(result.stdout)
-    entries = data.get("entries") or []
-    return [entry for entry in entries if isinstance(entry, dict)]
+    # --dump-json with ytsearch may produce JSON lines per entry
+    entries: list[dict[str, Any]] = []
+    for line in result.stdout.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("id"):
+            entries.append(data)
+        elif isinstance(data, dict) and data.get("entries"):
+            for e in data.get("entries") or []:
+                if isinstance(e, dict):
+                    entries.append(e)
+    return entries
 
 
 def _candidate_url(entry: dict[str, Any]) -> str:
@@ -105,7 +124,7 @@ def _rank(entry: dict[str, Any], track: Track, canonical_duration: int) -> tuple
         return None
     if not isinstance(duration, (int, float)) or canonical_duration <= 0:
         return None
-    if abs(duration - canonical_duration) / canonical_duration > 0.05:
+    if abs(duration - canonical_duration) / canonical_duration > 0.03:
         return None
 
     norm = re.sub(r"\W+", " ", f"{title} {channel}".casefold())
@@ -127,7 +146,6 @@ async def find_candidates(track: Track, canonical_duration: int | None) -> list[
     queries = [
         f"{track.artist} - {track.title} official audio",
         f"{track.artist} - {track.title} explicit",
-        f"{track.artist} - {track.title} uncensored",
         f"{track.artist} - {track.title} album version",
     ]
     candidates: dict[str, tuple[float, dict[str, Any]]] = {}

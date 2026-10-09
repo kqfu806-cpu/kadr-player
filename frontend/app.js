@@ -1895,6 +1895,7 @@
     return {
       short: "короче оригинала",
       lowbitrate: "низкий битрейт",
+      edited: "цензурированная версия",
     }[reason] || reason;
   }
 
@@ -1919,7 +1920,7 @@
       const candidateCell = candidates.length
         ? `<div class="quality-candidate"><select data-quality-choice="${esc(item.id)}">${choices}</select>` +
           `<small>${esc(candidates[0].duration)} сек. · <a href="${esc(candidates[0].url)}" target="_blank" rel="noopener noreferrer">Открыть</a></small></div>`
-        : '<span class="muted">Не искали</span>';
+        : '<span class="muted">Не искали — нажмите Найти оригинал</span>';
       const reasons = (item.reasons || [item.reason]).map(qualityReason).join(", ");
       const duration = item.local_duration == null
         ? "локальная неизвестна"
@@ -1927,7 +1928,7 @@
       return `<tr data-quality-row="${esc(item.id)}">` +
         `<td class="quality-track">${esc(item.artist)} — ${esc(item.title)}<small>${esc(item.path)}</small></td>` +
         `<td>${esc(reasons)}</td><td>${duration}</td>` +
-        `<td class="quality-candidate">${candidateCell}<button class="btn ghost" type="button" data-quality-search="${esc(item.id)}">Найти кандидатов</button></td>` +
+        `<td class="quality-candidate">${candidateCell}<button class="btn ghost" type="button" data-quality-search="${esc(item.id)}">Найти оригинал</button></td>` +
         `<td><button class="btn primary" type="button" data-quality-replace="${esc(item.id)}" ${candidates.length ? "" : "disabled"}>Заменить</button></td>` +
         `</tr>`;
     }).join("");
@@ -2034,7 +2035,7 @@
         const button = $("qualityRows").querySelector(`[data-quality-search="${CSS.escape(id)}"]`);
         if (button) {
           button.disabled = false;
-          button.textContent = "Найти кандидатов";
+          button.textContent = "Найти оригинал";
         }
       }
       return;

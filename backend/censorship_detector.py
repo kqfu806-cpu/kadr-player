@@ -15,13 +15,14 @@ from .scanner import Track
 
 log = logging.getLogger("kadr.uncensored")
 SUSPECTS_PATH = ROOT / ".tools" / "suspect_tracks.json"
-DURATION_CACHE_PATH = ROOT / ".tools" / "lastfm_track_durations.json"
-DURATION_CACHE_TTL_SECONDS = 24 * 60 * 60
+DURATION_CACHE_PATH = ROOT / ".tools" / "lastfm_durations.json"
+DURATION_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 _BLACKLIST = re.compile(
     r"\b(?:remix(?:ed|es)?|bootleg|mashup|edit(?:ed|s)?|version(?:s)?|"
     r"instrumental|acoustic|live|cover|slowed|reverb)\b|sped[\s-]*up",
     re.IGNORECASE,
 )
+_EDITED = re.compile(r"\b(?:clean|radio[\s-]+edit|edited|censored)\b", re.I)
 
 
 def _is_blacklisted(track: Track) -> bool:
@@ -33,6 +34,8 @@ def classify_track(track: Track, canonical_duration: int | None) -> dict[str, An
     if _is_blacklisted(track) or not canonical_duration or canonical_duration <= 0:
         return None
     reasons: list[str] = []
+    if _EDITED.search(track.title):
+        reasons.append("edited")
     if track.duration and canonical_duration - track.duration > 10:
         reasons.append("short")
     if track.bitrate and track.bitrate < 128:
