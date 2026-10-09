@@ -1113,12 +1113,15 @@
         const item = state.waveQueue.shift();
         if (!item) break;
         state.waveSeen.add(item.id);
+        // FIX Bug3: if API returned track not in local library — skip and take next (except allowed external preview for new/mix)
         if (item.external) {
+          // only allow external for new/mix, otherwise skip non-local
+          if (state.waveModeKey !== "new" && state.waveModeKey !== "mix") continue;
           playExternalWaveItem(item);
           return;
         }
         const index = state.tracks.findIndex((track) => track.id === item.id);
-        if (index < 0) continue;
+        if (index < 0) continue; // skip non-local, take next per spec
         state.waveReason = item.reason || "подборка по твоим вкусам";
         playIndex(index, true);
         return;
