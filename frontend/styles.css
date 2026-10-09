@@ -2194,3 +2194,11 @@ html[data-theme="dragon"] .app-bg::before {
 .network-status.ok { color: var(--muted); }
 .network-status.warn { color: #e67e22; }
 .network-status.down { color: #e74c3c; font-weight: 600; }
+
+/* BUG5 skeleton */
+.weekly-card.skeleton { animation: pulse 1.4s ease-in-out infinite; }
+.skeleton-box { background: linear-gradient(90deg, var(--glass) 25%, rgba(255,255,255,0.08) 37%, var(--glass) 63%); background-size: 400% 100%; animation: shimmer 1.2s ease-in-out infinite; }
+.skeleton-line { display: block; height: 0.7rem; margin: 0.4rem 0; border-radius: 0.3rem; background: linear-gradient(90deg, var(--glass) 25%, rgba(255,255,255,0.08) 37%, var(--glass) 63%); background-size: 400% 100%; animation: shimmer 1.2s ease-in-out infinite; }
+.skeleton-line.short { height: 0.55rem; }
+@keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.85} }

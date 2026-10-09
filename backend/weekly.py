@@ -178,11 +178,13 @@ async def _lastfm_taste_tracks(
     warnings: list[str],
 ) -> set[tuple[str, str]]:
     matches: set[tuple[str, str]] = set()
+    chart_failed = False
     try:
         chart = await lastfm.get_chart_top_tracks(100)
         matches.update(key for item in chart if (key := _lastfm_track_key(item))[0] and key[1])
     except LastFmError as exc:
         warnings.append(f"Last.fm chart unavailable: {type(exc).__name__}")
+        chart_failed = True
 
     tags: set[str] = set()
     for artist in seeds[:4]:
@@ -196,15 +198,34 @@ async def _lastfm_taste_tracks(
             if item.get("name")
         )
 
-    for tag in sorted(tags)[:6]:
-        try:
-            tagged_tracks = await lastfm.get_tag_top_tracks(tag, 50)
-        except LastFmError as exc:
-            warnings.append(f"Last.fm tag chart unavailable for {tag}: {type(exc).__name__}")
-            continue
-        matches.update(
-            key for item in tagged_tracks if (key := _lastfm_track_key(item))[0] and key[1]
-        )
+    # BUG5: if chart.getTopTracks not working — fallback on tag.getTopTracks
+    if chart_failed or not matches:
+        fallback_tags = list(sorted(tags)[:6]) or ["pop", "rock", "hip-hop", "russian"]
+        for tag in fallback_tags[:6]:
+            try:
+                tagged_tracks = await lastfm.get_tag_top_tracks(tag, 50)
+            except LastFmError as exc:
+                warnings.append(f"Last.fm tag chart unavailable for {tag}: {type(exc).__name__}")
+                continue
+            before = len(matches)
+            matches.update(
+                key for item in tagged_tracks if (key := _lastfm_track_key(item))[0] and key[1]
+            )
+            if len(matches) > before:
+                log.info("Fallback tag.getTopTracks for %s added %d tracks", tag, len(matches)-before)
+            if matches:
+                # if we got some, continue to fill but not need all tags if chart failed
+                pass
+    else:
+        for tag in sorted(tags)[:6]:
+            try:
+                tagged_tracks = await lastfm.get_tag_top_tracks(tag, 50)
+            except LastFmError as exc:
+                warnings.append(f"Last.fm tag chart unavailable for {tag}: {type(exc).__name__}")
+                continue
+            matches.update(
+                key for item in tagged_tracks if (key := _lastfm_track_key(item))[0] and key[1]
+            )
     return matches
 
 

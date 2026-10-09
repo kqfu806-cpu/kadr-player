@@ -3950,8 +3950,13 @@
   async function loadWeekly(force = false) {
     const status = $("weeklyStatus");
     const refresh = $("weeklyRefresh");
+    const host = $("weeklyCards");
     if (refresh) refresh.disabled = true;
     if (status) status.textContent = force ? "Обновляю подборку…" : "Загружаю подборку…";
+    // BUG5: skeleton while loading
+    if (host) {
+      host.innerHTML = Array.from({length: 6}).map(()=> `<article class="weekly-card skeleton"><div class="weekly-cover skeleton-box"></div><div class="weekly-card-info"><span class="skeleton-line" style="width:70%"></span><span class="skeleton-line short" style="width:45%"></span></div><div class="weekly-card-actions"><span class="skeleton-line" style="width:40%"></span></div></article>`).join("");
+    }
     const followedArtists = [...state.followedArtists];
     const query = new URLSearchParams();
     followedArtists.forEach((artist) => query.append("artist", artist));
