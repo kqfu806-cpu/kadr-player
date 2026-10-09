@@ -140,6 +140,7 @@
     seeking: false,
     resolving: false,
     order: [],
+    artistQueue: [],
     lyrics: null,
     externalTrack: null,
     lyricIndex: -1,
@@ -659,8 +660,9 @@
     showWelcome(!currentTrack());
   }
 
-  async function playIndex(i, fromWave) {
+  async function playIndex(i, fromWave, fromArtistQueue = false) {
     if (i < 0 || i >= state.tracks.length) return;
+    if (!fromArtistQueue) state.artistQueue = [];
     if (state.waveMode && !fromWave) {
       sendWaveSignal("skip");
       setWaveMode(false);
@@ -1258,6 +1260,20 @@
       playWaveNext();
       return;
     }
+    if (state.artistQueue.length) {
+      const position = state.artistQueue.indexOf(state.index);
+      let nextPosition = position + 1;
+      if (nextPosition >= state.artistQueue.length) {
+        if (fromEnded && state.repeat !== "all") {
+          state.artistQueue = [];
+          setPlaying(false);
+          return;
+        }
+        nextPosition = 0;
+      }
+      playIndex(state.artistQueue[nextPosition], false, true);
+      return;
+    }
     if (!state.tracks.length) return;
     let i;
     if (state.shuffle) {
@@ -1284,6 +1300,12 @@
     if (state.waveMode) {
       sendWaveSignal("skip");
       playWaveNext();
+      return;
+    }
+    if (state.artistQueue.length) {
+      const position = state.artistQueue.indexOf(state.index);
+      const previousPosition = position <= 0 ? state.artistQueue.length - 1 : position - 1;
+      playIndex(state.artistQueue[previousPosition], false, true);
       return;
     }
     if (!state.tracks.length) return;
@@ -3593,18 +3615,23 @@
     const content = $("profileContent");
     const status = $("profileStatus");
     if (!content || !status) return;
+    content.classList.add("profile-content");
     status.textContent = `${profile.local_tracks.length} треков в библиотеке`;
     const fallbackInitial = String(profile.artist || "?").trim().charAt(0).toLocaleUpperCase() || "?";
     const image = profile.image
       ? `<img class="profile-image" src="${esc(profile.image)}" alt="${esc(profile.artist)}" data-fallback="${esc(fallbackInitial)}" referrerpolicy="no-referrer">`
       : `<span class="profile-image missing" aria-hidden="true">${esc(fallbackInitial)}</span>`;
+    const followed = state.followedArtists.has(profile.artist);
+    const bio = profile.bio
+      ? `<details class="profile-bio"><summary>Биография</summary><p>${esc(window.i18n ? window.i18n.localizeText(profile.bio) : profile.bio)}</p></details>`
+      : `<details class="profile-bio"><summary>Биография</summary><p>${esc(window.i18n ? window.i18n.t("profile.noBiography") : "Биография не указана.")}</p></details>`;
     const genres = (profile.genres || []).map((tag) =>
       `<span class="profile-tag">${esc(window.i18n ? window.i18n.genre(tag.name) : tag.name)}</span>`).join("");
     const localRows = profile.local_tracks.length
       ? profile.local_tracks.map((track) =>
-        `<li><button class="profile-track-main btn ghost" type="button" data-profile-track="${esc(track.id)}">` +
-        `${esc(track.title)}<small>${esc([track.album, track.year].filter(Boolean).join(" · "))}</small></button></li>`).join("")
-      : `<li class="muted">Треков в локальной библиотеке нет.</li>`;
+        `<button class="profile-track-card" type="button" data-profile-track="${esc(track.id)}">` +
+        `<span>${esc(track.title)}</span><small>${esc([track.album, track.year].filter(Boolean).join(" · "))}</small></button>`).join("")
+      : `<p class="muted">Треков в локальной библиотеке нет.</p>`;
     const topRows = (profile.top_tracks || []).length
       ? profile.top_tracks.map((track) => {
         const action = track.in_library
@@ -3628,16 +3655,34 @@
       ? `<p class="profile-warning">Данные об артисте недоступны. Проверьте VPN или интернет</p>`
       : "";
     content.innerHTML =
-      `<div class="profile-hero">${image}<div><h1 class="profile-title">${esc(profile.artist)}</h1>` +
+      `<div class="profile-hero">${image}<div class="profile-hero-info"><h1 class="profile-title">${esc(profile.artist)}</h1>` +
       `<div class="profile-tags">${genres || `<span class="muted">Жанры не указаны</span>`}</div>` +
-      `<a class="profile-open" href="${esc(artistUrl)}" target="_blank" rel="noopener noreferrer">Профиль Last.fm ↗</a>` +
-      `<p class="profile-bio">${esc(window.i18n ? window.i18n.localizeText(profile.bio || window.i18n.t("profile.noBiography")) : (profile.bio || "Биография не указана."))}</p>${unavailable}</div></div>` +
+      `<div class="profile-actions"><button class="btn primary" type="button" data-profile-play-all="${esc(profile.artist)}" ${profile.local_tracks.length ? "" : "disabled"}>Играть всё</button>` +
+      `<button class="btn ghost profile-favorite ${followed ? "on" : ""}" type="button" data-profile-follow="${esc(profile.artist)}" aria-pressed="${followed}">${followed ? "В избранном" : "В избранное"}</button>` +
+      `<a class="profile-open" href="${esc(artistUrl)}" target="_blank" rel="noopener noreferrer">Last.fm ↗</a></div>` +
+      `${bio}${unavailable}</div></div>` +
       `<div class="profile-sections">` +
-      `<section class="profile-section"><h2>В библиотеке</h2><ul class="profile-list">${localRows}</ul></section>` +
+      `<section class="profile-section"><h2>В библиотеке</h2><div class="profile-track-grid">${localRows}</div></section>` +
       `<section class="profile-section"><h2>Топ треки · Last.fm</h2><ul class="profile-list">${topRows}</ul></section>` +
       `<section class="profile-section"><h2>Похожие исполнители</h2><div class="profile-similar">${similar || `<span class="muted">Нет данных.</span>`}</div></section>` +
       `<section class="profile-section"><h2>Новые релизы · 3 месяца</h2><ul class="profile-list">${releases}</ul>${warnings}</section>` +
       `</div>`;
+  }
+
+  function playArtistQueue(name) {
+    const normalizedName = name.trim().toLocaleLowerCase();
+    const indexes = state.tracks
+      .map((track, index) => ({ track, index }))
+      .filter(({ track }) => track.artist.trim().toLocaleLowerCase() === normalizedName)
+      .map(({ index }) => index);
+    if (!indexes.length) {
+      toast("Треков этого артиста в библиотеке нет");
+      return;
+    }
+    state.artistQueue = indexes;
+    showLibrarySection();
+    setSideTab("tracks");
+    playIndex(indexes[0], false, true);
   }
 
   async function openArtistProfile(name) {
@@ -3666,6 +3711,21 @@
     showLibrarySection();
   });
   $("profileContent")?.addEventListener("click", (event) => {
+    const playAllButton = event.target.closest("[data-profile-play-all]");
+    if (playAllButton) {
+      playArtistQueue(playAllButton.dataset.profilePlayAll);
+      return;
+    }
+    const followButton = event.target.closest("[data-profile-follow]");
+    if (followButton) {
+      const name = followButton.dataset.profileFollow;
+      toggleFollowedArtist(name);
+      const nowFollowed = state.followedArtists.has(name);
+      followButton.classList.toggle("on", nowFollowed);
+      followButton.setAttribute("aria-pressed", String(nowFollowed));
+      followButton.textContent = nowFollowed ? "В избранном" : "В избранное";
+      return;
+    }
     const trackButton = event.target.closest("[data-profile-track]");
     if (trackButton) {
       const index = state.tracks.findIndex((track) => track.id === trackButton.dataset.profileTrack);

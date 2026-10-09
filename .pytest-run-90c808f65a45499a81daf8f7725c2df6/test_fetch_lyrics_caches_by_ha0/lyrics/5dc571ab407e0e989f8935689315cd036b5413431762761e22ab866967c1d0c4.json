@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "source": "lrclib-plain",
+  "synced": false,
+  "timing": "none",
+  "lines": [
+    {
+      "t": null,
+      "text": "one",
+      "words": []
+    },
+    {
+      "t": null,
+      "text": "two three",
+      "words": []
+    },
+    {
+      "t": null,
+      "text": "four",
+      "words": []
+    }
+  ],
+  "cache_key": "5dc571ab407e0e989f8935689315cd036b5413431762761e22ab866967c1d0c4"
+}
