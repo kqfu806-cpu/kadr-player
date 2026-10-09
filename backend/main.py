@@ -884,6 +884,10 @@ async def api_download(body: dict[str, Any]) -> dict[str, Any]:
     album = str(body.get("album") or "").strip()
     year = str(body.get("year") or "").strip()
     track_no = str(body.get("track_no") or body.get("track") or "").strip()
+    try:
+        preview_duration = float(body.get("preview_duration") or body.get("duration") or 0) or None
+    except Exception:
+        preview_duration = None
     if not url or not artist or not title:
         raise HTTPException(400, "Нужно url, artist, title")
     if not url.startswith("https://"):
@@ -905,7 +909,7 @@ async def api_download(body: dict[str, Any]) -> dict[str, Any]:
         try:
             download_tasks[task_id]["status"] = "downloading"
             download_tasks[task_id]["progress"] = 10
-            result = audio_fetcher.fetch_with_tags(url, target, artist, title, album, year, track_no)
+            result = audio_fetcher.fetch_with_tags(url, target, artist, title, album, year, track_no, preview_duration=preview_duration)
             if result.get("status") == "exists":
                 download_tasks[task_id].update(status="exists", path=result.get("path"), progress=100)
                 return

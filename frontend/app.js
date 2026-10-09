@@ -295,7 +295,13 @@
 
   // Task1: download helper with spinner and library reload
   async function triggerDownload(opts, button) {
-    const { url, artist, title, album, year, track_no } = opts;
+    const { url, artist, title, album, year, track_no, preview_duration, duration } = opts;
+    // BUG1.3: if Deezer preview <40 sec auto use YouTube
+    let useUrl = url;
+    let pd = preview_duration ?? duration;
+    if (useUrl && /deezer/i.test(useUrl) && pd != null && Number(pd) < 40) {
+      useUrl = null; // force YouTube search
+    }
     if (button) {
       button.disabled = true;
       button.classList.add("downloading");
@@ -303,10 +309,10 @@
     }
     try {
       let data;
-      if (url) {
-        data = await api("/api/download", { method: "POST", body: JSON.stringify({ url, artist, title, album, year, track_no }) });
+      if (useUrl) {
+        data = await api("/api/download", { method: "POST", body: JSON.stringify({ url: useUrl, artist, title, album, year, track_no, preview_duration: pd }) });
       } else {
-        data = await api("/api/download/by-search", { method: "POST", body: JSON.stringify({ artist, title, album, year }) });
+        data = await api("/api/download/by-search", { method: "POST", body: JSON.stringify({ artist, title, album, year, preview_duration: pd }) });
       }
       if (data.task_id) {
         toast(`Скачивается: ${artist} — ${title}`);
@@ -1089,21 +1095,21 @@
   async function toggleCurrentLike() {
     const track = currentTrack();
     if (!track) return;
-    // if external preview, also download
+    // if external preview, also download via YouTube (BUG1)
     if (track.external) {
       const signal = "like";
       await sendWaveSignal(signal).catch(()=>{});
       toast(`Скачивается: ${track.artist} — ${track.title}`);
-      await triggerDownload({artist: track.artist, title: track.title, url: track.preview || track.url || ""}, null);
+      await triggerDownload({artist: track.artist, title: track.title, url: track.preview || track.url || "", preview_duration: track.duration || track.preview_duration || 30, duration: track.duration}, null);
       return;
     }
     const signal = state.likedTracks.has(track.id) ? "dislike" : "like";
     const result = await sendWaveSignal(signal);
     if (result) toast(signal === "like" ? "Лайк сохранён" : "Лайк убран; учту меньше похожих");
-    // if like and not in library, download in background
+    // if like and not in library, download in background via YouTube (BUG1)
     if (signal==="like" && !state.tracks.some(t=>t.id===track.id)) {
       toast(`Скачивается: ${track.artist} — ${track.title}`);
-      triggerDownload({artist: track.artist, title: track.title}, null);
+      triggerDownload({artist: track.artist, title: track.title, preview_duration: track.duration}, null);
     }
   }
 

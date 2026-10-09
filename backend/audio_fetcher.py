@@ -50,7 +50,9 @@ class AudioFetcher:
     def fetch(self, url: str, output_path: str | Path) -> bool:
         """Low-level fetch: tools/audiodl.exe -x --audio-format opus --audio-quality 0 -o "{output_path}.%(ext)s" "{url}" """
         if not self.binary_path.is_file():
-            self.log.error("Audio downloader executable is missing: %s", self.binary_path)
+            # BUG2: понятная ошибка
+            msg = "Бинарник не найден. Положите audiodl.exe в папку tools/"
+            self.log.error("%s missing: %s url=%s", msg, self.binary_path, url)
             return False
 
         output_path = Path(output_path)
@@ -89,11 +91,13 @@ class AudioFetcher:
             return False
 
         if result.returncode != 0:
+            # BUG2: логировать полный ответ yt-dlp
             self.log.error(
-                "Audio downloader exited with code %s for %s: %s",
+                "Audio downloader exited with code %s for %s: stderr=%s stdout=%s",
                 result.returncode,
                 url,
-                result.stderr.strip()[:500],
+                result.stderr.strip()[:1000],
+                result.stdout.strip()[:1000],
             )
             return False
 
@@ -130,18 +134,32 @@ class AudioFetcher:
         album: str = "",
         year: str = "",
         track_no: str = "",
+        preview_duration: float | None = None,
     ) -> dict[str, Any]:
-        """Fetch and then tag file + cover. Returns status dict."""
+        """Fetch and then tag file + cover. Returns status dict. If preview_duration<40 use YouTube."""
+        # BUG1.3: if Deezer preview <40 sec, auto use YouTube search
+        if preview_duration is not None and preview_duration < 40 and url and "deezer" in url.lower():
+            self.log.info("Deezer preview %.1f sec <40, switching to YouTube for %s - %s", preview_duration, artist, title)
+            yt_url = self.search_youtube(artist, title)
+            if yt_url:
+                url = yt_url
+                self.log.info("Switched to YouTube URL %s for %s - %s", url, artist, title)
         output_path = Path(output_path)
         final_path = output_path.with_suffix(".opus")
         if final_path.is_file():
             self.log.info("File already exists: %s", final_path)
             return {"status": "exists", "path": str(final_path)}
+        self.log.info("fetch_with_tags start url=%s artist=%s title=%s output=%s", url, artist, title, output_path)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.binary_path.is_file():
+            msg = "Бинарник не найден. Положите audiodl.exe в папку tools/"
+            self.log.error("%s %s", msg, url)
+            return {"status": "error", "detail": msg}
         ok = self.fetch(url, output_path)
         if not ok:
-            return {"status": "error", "detail": "Download failed or too large"}
+            # BUG2: include full yt-dlp log, already logged
+            return {"status": "error", "detail": "Download failed or too large. Проверьте .tools/audio_fetcher.log"}
 
         # Determine downloaded file (should be .opus)
         downloaded = final_path
@@ -329,8 +347,55 @@ class AudioFetcher:
         except Exception as exc:
             self.log.warning("Cover embed failed for %s: %s", audio_path, exc)
 
+    def search_youtube(self, artist: str, title: str) -> str | None:
+        """Bug1: search full track on YouTube via ytsearch: \"{artist} - {title}\" official audio"""
+        if not self.binary_path.is_file():
+            self.log.error("Бинарник не найден. Положите audiodl.exe в папку tools/")
+            return None
+        # spec query exact: "{artist} - {title}" official audio
+        query = f'"{artist} - {title}" official audio'
+        # fallback without quotes if empty
+        if not artist.strip() or not title.strip():
+            query = f"{artist} - {title} official audio"
+        url = f"ytsearch1:{query}"
+        command = [str(self.binary_path), "--dump-json", "--no-playlist", url]
+        # log
+        self.log.info("search_youtube %s -> %s", f"{artist} - {title}", url)
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+            )
+            if result.returncode != 0:
+                self.log.error("search_youtube failed %s: %s %s", query, result.stderr[:800], result.stdout[:800])
+                return None
+            for line in result.stdout.splitlines():
+                line=line.strip()
+                if not line:
+                    continue
+                try:
+                    data=json.loads(line)
+                    candidate=data.get("webpage_url") or data.get("url") or data.get("original_url")
+                    if candidate and candidate.startswith("http"):
+                        self.log.info("search_youtube found %s - %s: %s", artist, title, candidate)
+                        return candidate
+                except json.JSONDecodeError:
+                    continue
+        except Exception as exc:
+            self.log.error("search_youtube error %s: %s", query, exc)
+        return None
+
     def search_url(self, artist: str, title: str) -> str | None:
-        """Search YouTube URL via audiodl.exe --dump-json"""
+        """Search YouTube URL via audiodl.exe --dump-json (compat wrapper for search_youtube)"""
+        # try search_youtube first for full audio
+        url = self.search_youtube(artist, title)
+        if url:
+            return url
         if not self.binary_path.is_file():
             self.log.error("Downloader missing for search")
             return None
