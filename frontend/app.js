@@ -455,6 +455,7 @@
       const li = ul.children[k];
       li.dataset.id = t.id;
       li.dataset.i = String(i);
+      li.draggable = true;
       li.classList.toggle("active", i === state.index);
       li.style.setProperty("--y", `${(start + k) * rh}px`);
       const nStr = String(i + 1).padStart(2, "0");
@@ -2110,6 +2111,307 @@
       toast(err.message);
     }
   });
+
+
+  // ---------- DJ mode: deck A/B ----------
+  (() => {
+    const djPanel = $("djPanel");
+    const btnDJ = $("btnDJ");
+    const djClose = $("djClose");
+    const crossfader = $("crossfader");
+    const recordBtn = $("djRecord");
+    const audioA = $("audioA");
+    const audioB = $("audioB");
+    if (!djPanel || !btnDJ) return;
+    let audioCtx = null;
+    let sourceA = null, sourceB = null;
+    let gainA = null, gainB = null;
+    let filterALow = null, filterAMid = null, filterAHigh = null;
+    let filterBLow = null, filterBMid = null, filterBHigh = null;
+    let dest = null;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let loopTimers = {A:null,B:null};
+    const deckState = {A:{track:null,bpm:null,loop:null}, B:{track:null,bpm:null,loop:null}};
+
+    function ensureAudioCtx() {
+      if (audioCtx) return audioCtx;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      dest = audioCtx.createMediaStreamDestination();
+      // Deck A chain
+      sourceA = audioCtx.createMediaElementSource(audioA);
+      gainA = audioCtx.createGain();
+      filterALow = audioCtx.createBiquadFilter(); filterALow.type="lowshelf"; filterALow.frequency.value=320;
+      filterAMid = audioCtx.createBiquadFilter(); filterAMid.type="peaking"; filterAMid.frequency.value=1000; filterAMid.Q.value=1;
+      filterAHigh = audioCtx.createBiquadFilter(); filterAHigh.type="highshelf"; filterAHigh.frequency.value=3200;
+      sourceA.connect(filterALow).connect(filterAMid).connect(filterAHigh).connect(gainA).connect(audioCtx.destination);
+      gainA.connect(dest);
+      // Deck B chain
+      sourceB = audioCtx.createMediaElementSource(audioB);
+      gainB = audioCtx.createGain();
+      filterBLow = audioCtx.createBiquadFilter(); filterBLow.type="lowshelf"; filterBLow.frequency.value=320;
+      filterBMid = audioCtx.createBiquadFilter(); filterBMid.type="peaking"; filterBMid.frequency.value=1000; filterBMid.Q.value=1;
+      filterBHigh = audioCtx.createBiquadFilter(); filterBHigh.type="highshelf"; filterBHigh.frequency.value=3200;
+      sourceB.connect(filterBLow).connect(filterBMid).connect(filterBHigh).connect(gainB).connect(audioCtx.destination);
+      gainB.connect(dest);
+      updateCrossfader();
+      return audioCtx;
+    }
+
+    function updateCrossfader(){
+      if(!gainA||!gainB) return;
+      const v = Number(crossfader?.value||50)/100;
+      // equal power crossfade
+      const gA = Math.cos(v * Math.PI/2);
+      const gB = Math.cos((1 - v) * Math.PI/2);
+      gainA.gain.value = gA;
+      gainB.gain.value = gB;
+    }
+    crossfader?.addEventListener("input", updateCrossfader);
+
+    // EQ handlers
+    document.querySelectorAll("[data-eq]").forEach(inp=>{
+      inp.addEventListener("input",()=>{
+        ensureAudioCtx();
+        const [deck, band] = inp.dataset.eq.split(":");
+        const val = Number(inp.value);
+        if(deck==="A"){
+          if(band==="low") filterALow.gain.value = val;
+          if(band==="mid") filterAMid.gain.value = val;
+          if(band==="high") filterAHigh.gain.value = val;
+        } else {
+          if(band==="low") filterBLow.gain.value = val;
+          if(band==="mid") filterBMid.gain.value = val;
+          if(band==="high") filterBHigh.gain.value = val;
+        }
+      });
+    });
+
+    // Pitch ±10%
+    $("pitchA")?.addEventListener("input", e=>{
+      const v = Number(e.target.value);
+      $("pitchAValue").textContent = (v>0?"+":"")+v+"%";
+      audioA.playbackRate = 1 + v/100;
+    });
+    $("pitchB")?.addEventListener("input", e=>{
+      const v = Number(e.target.value);
+      $("pitchBValue").textContent = (v>0?"+":"")+v+"%";
+      audioB.playbackRate = 1 + v/100;
+    });
+
+    function openDJ(){ djPanel.classList.remove("hidden"); }
+    function closeDJ(){ djPanel.classList.add("hidden"); }
+    btnDJ.addEventListener("click", openDJ);
+    djClose?.addEventListener("click", closeDJ);
+    djPanel.addEventListener("click", e=>{ if(e.target===djPanel) closeDJ(); });
+
+    // drag-drop load
+    function setupDrop(deck){
+      const drop = document.getElementById(`deck${deck}Drop`);
+      if(!drop) return;
+      drop.addEventListener("dragover", e=>{ e.preventDefault(); drop.classList.add("drag-over"); });
+      drop.addEventListener("dragleave", ()=> drop.classList.remove("drag-over"));
+      drop.addEventListener("drop", async e=>{
+        e.preventDefault(); drop.classList.remove("drag-over");
+        const trackId = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/track-id");
+        const json = e.dataTransfer.getData("application/json");
+        let id = trackId;
+        try{ if(json) id = JSON.parse(json).id || id; }catch(_){}
+        if(id) await loadDeck(deck, id);
+      });
+      drop.addEventListener("click", async ()=>{
+        const cur = currentTrack();
+        if(cur) await loadDeck(deck, cur.id);
+      });
+    }
+    setupDrop("A"); setupDrop("B");
+
+    // make playlist items draggable
+    document.addEventListener("dragstart", e=>{
+      const li = e.target.closest && e.target.closest("#playlist li[data-id]");
+      if(!li) return;
+      const id = li.dataset.id;
+      e.dataTransfer.setData("text/plain", id);
+      try{ e.dataTransfer.setData("application/json", JSON.stringify({id})); }catch(_){}
+      e.dataTransfer.effectAllowed="copy";
+    });
+
+    // also expose load via double-click
+    $("playlist")?.addEventListener("dblclick", e=>{
+      const li = e.target.closest("li[data-id]");
+      if(!li) return;
+      // shift+double loads to A, otherwise B if A occupied
+      const deck = deckState.A.track ? "B" : "A";
+      loadDeck(deck, li.dataset.id);
+    });
+
+    async function loadDeck(deck, trackId){
+      const track = state.tracks.find(t=>t.id===trackId) || library[trackId] || state.tracks.find(t=>t.id===trackId);
+      // fallback search in state.tracks
+      const found = state.tracks.find(t=>t.id===trackId) || track;
+      const t = found || {id:trackId, title:trackId, artist:"", album:"", path:""};
+      deckState[deck].track = t;
+      const audioEl = deck==="A"? audioA : audioB;
+      const titleEl = document.getElementById(`deck${deck}Title`);
+      if(titleEl) titleEl.textContent = `${t.artist} — ${t.title}`;
+      audioEl.src = `/api/stream/${encodeURIComponent(trackId)}`;
+      audioEl.load();
+      // waveform
+      try{
+        const wf = await api(`/api/track/${encodeURIComponent(trackId)}/waveform`);
+        drawWaveform(deck, wf.waveform || wf.peaks || []);
+      }catch(e){ console.warn("waveform",e); }
+      // bpm
+      try{
+        const bpmData = await api(`/api/track/${encodeURIComponent(trackId)}/bpm`);
+        deckState[deck].bpm = bpmData.bpm;
+        const bpmEl = document.getElementById(`deck${deck}Bpm`);
+        if(bpmEl) bpmEl.textContent = bpmData.bpm ? `${bpmData.bpm} BPM` : "— BPM";
+      }catch(e){ console.warn("bpm",e); }
+      toast(`Deck ${deck} загружен: ${t.artist} — ${t.title}`);
+    }
+
+    function drawWaveform(deck, data){
+      const canvas = document.getElementById(`waveform${deck}`);
+      if(!canvas || !data.length) return;
+      const ctx = canvas.getContext("2d");
+      const dpr = window.devicePixelRatio||1;
+      const w = canvas.width = canvas.clientWidth*dpr;
+      const h = canvas.height = canvas.clientHeight*dpr;
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle="#0a0e1a";
+      ctx.fillRect(0,0,w,h);
+      ctx.strokeStyle=deck==="A"? "#00ffff":"#ff00ff";
+      ctx.lineWidth=1.2*dpr;
+      ctx.beginPath();
+      const step = w / data.length;
+      for(let i=0;i<data.length;i++){
+        const v = Number(data[i])||0;
+        const x = i*step;
+        const y = h/2 - v*h*0.4;
+        const y2 = h/2 + v*h*0.4;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y2);
+      }
+      ctx.stroke();
+      // progress overlay
+      const audioEl = deck==="A"? audioA:audioB;
+      function frame(){
+        if(canvas.dataset.deck!==deck && false) return;
+        const dur = audioEl.duration||1;
+        const cur = audioEl.currentTime||0;
+        const progress = cur/dur;
+        ctx.fillStyle="rgba(255,255,255,0.08)";
+        ctx.fillRect(0,0,w*progress,h);
+        if(!audioEl.paused) requestAnimationFrame(frame);
+      }
+      audioEl.addEventListener("play", ()=>requestAnimationFrame(frame));
+      audioEl.addEventListener("timeupdate", ()=>{
+        // lightweight progress handled in frame
+      });
+    }
+
+    // Play/Pause/Cue/Loop
+    document.querySelectorAll("[data-deck-play]").forEach(btn=>{
+      btn.addEventListener("click", async ()=>{
+        ensureAudioCtx();
+        const deck = btn.dataset.deckPlay;
+        const audioEl = deck==="A"? audioA:audioB;
+        if(audioCtx && audioCtx.state==="suspended") await audioCtx.resume();
+        try{ await audioEl.play(); }catch(e){ toast(e.message); }
+      });
+    });
+    document.querySelectorAll("[data-deck-pause]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const deck = btn.dataset.deckPause;
+        const audioEl = deck==="A"? audioA:audioB;
+        audioEl.pause();
+      });
+    });
+    document.querySelectorAll("[data-deck-cue]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const deck = btn.dataset.deckCue;
+        const audioEl = deck==="A"? audioA:audioB;
+        audioEl.pause();
+        audioEl.currentTime=0;
+      });
+    });
+    document.querySelectorAll("[data-loop]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const [deck, beatsStr] = btn.dataset.loop.split(":");
+        const beats = Number(beatsStr);
+        const stateLoop = deckState[deck].loop;
+        const audioEl = deck==="A"? audioA:audioB;
+        if(stateLoop===beats){
+          deckState[deck].loop=null;
+          audioEl.loop=false;
+          if(loopTimers[deck]){ clearInterval(loopTimers[deck]); loopTimers[deck]=null; }
+          btn.classList.remove("is-active");
+          toast(`Deck ${deck} Loop off`);
+        } else {
+          deckState[deck].loop=beats;
+          document.querySelectorAll(`[data-loop^="${deck}:"]`).forEach(b=>b.classList.remove("is-active"));
+          btn.classList.add("is-active");
+          const bpm = deckState[deck].bpm || 120;
+          const secPerBeat = 60 / bpm;
+          const loopSec = beats * secPerBeat;
+          // simple loop via timeupdate
+          if(loopTimers[deck]) clearInterval(loopTimers[deck]);
+          let loopStart = audioEl.currentTime;
+          loopTimers[deck]= setInterval(()=>{
+            if(audioEl.currentTime - loopStart >= loopSec){
+              audioEl.currentTime = loopStart;
+            }
+          }, 40);
+          toast(`Deck ${deck} Loop ${beats} beats (~${loopSec.toFixed(1)}s)`);
+        }
+      });
+    });
+
+    // Record via MediaRecorder .webm
+    recordBtn?.addEventListener("click", async ()=>{
+      if(mediaRecorder && mediaRecorder.state==="recording"){
+        mediaRecorder.stop();
+        recordBtn.textContent="● Record";
+        recordBtn.classList.remove("recording");
+        return;
+      }
+      ensureAudioCtx();
+      if(audioCtx.state==="suspended") await audioCtx.resume();
+      if(!dest){
+        toast("Аудиоконтекст не готов");
+        return;
+      }
+      recordedChunks=[];
+      try{
+        mediaRecorder = new MediaRecorder(dest.stream, {mimeType: "audio/webm"});
+      }catch(e){
+        try{ mediaRecorder = new MediaRecorder(dest.stream); }catch(e2){ toast("MediaRecorder не поддерживается"); return; }
+      }
+      mediaRecorder.ondataavailable = e=>{ if(e.data.size>0) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = async ()=>{
+        const blob = new Blob(recordedChunks, {type: "audio/webm"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href=url; a.download=`kadr-mix-${Date.now()}.webm`;
+        a.textContent="Скачать микс .webm";
+        a.className="btn primary";
+        // append temporary download link
+        const header = document.querySelector(".dj-header");
+        header?.appendChild(a);
+        setTimeout(()=>URL.revokeObjectURL(url), 60000);
+        toast(`Запись сохранена: ${(blob.size/1024/1024).toFixed(2)} MB .webm`);
+      };
+      mediaRecorder.start(100);
+      recordBtn.textContent="■ Stop";
+      recordBtn.classList.add("recording");
+      toast("Запись микса началась (MediaRecorder .webm)");
+    });
+
+    // expose for tests
+    window.__dj = {loadDeck, deckState};
+
+  })();
 
   // ---------- модалка выбора папки ----------
   let fsPath = "";

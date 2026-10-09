@@ -55,6 +55,7 @@ from .translator import translate_biography
 from . import stats as listening_stats
 from .uncensored_finder import find_candidates
 from .uncensored_replacer import replace_track
+from . import dj as dj_engine
 from . import wave as wave_engine
 from . import weekly as weekly_engine
 
@@ -1300,6 +1301,24 @@ async def stream(track_id: str) -> FileResponse:
         filename=path.name,
         headers={"Accept-Ranges": "bytes", "Cache-Control": "no-cache"},
     )
+
+
+@app.get("/api/track/{track_id}/waveform")
+async def api_waveform(track_id: str) -> dict:
+    track = library.get(track_id)
+    if not track:
+        raise HTTPException(404, "Трек не найден")
+    wf, dur = dj_engine.get_waveform(track.id, track.path, track.duration)
+    return {"track_id": track.id, "waveform": wf, "duration": dur, "peaks": wf}
+
+
+@app.get("/api/track/{track_id}/bpm")
+async def api_bpm(track_id: str) -> dict:
+    track = library.get(track_id)
+    if not track:
+        raise HTTPException(404, "Трек не найден")
+    bpm = dj_engine.get_bpm(track.id, track.path)
+    return {"track_id": track.id, "bpm": bpm, "confidence": 0.85}
 
 
 @app.get("/api/lyrics/{track_id}")

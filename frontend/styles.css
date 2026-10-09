@@ -1992,3 +1992,63 @@ input[type="range"]::-webkit-slider-thumb {
   .weekly-toolbar #weeklyBack { order: 1; }
   .weekly-toolbar #weeklyRefresh { order: 3; }
 }
+
+
+/* DJ mode — decks A/B */
+.dj-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+}
+.dj-panel.hidden { display: none !important; }
+.dj-card {
+  width: min(1200px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid var(--stroke);
+  border-radius: 1rem;
+  background: var(--bg-opacity);
+  padding: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+.dj-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.dj-header-actions { display: flex; gap: 0.5rem; align-items: center; }
+.dj-decks { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+@media (max-width: 900px) { .dj-decks { grid-template-columns: 1fr; } }
+.dj-deck {
+  border: 1px solid var(--stroke);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+}
+.deck-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
+.deck-label { font-size: 0.9rem; letter-spacing: 0.04em; }
+.deck-drop {
+  border: 1.5px dashed var(--stroke);
+  border-radius: 0.6rem;
+  padding: 0.7rem;
+  text-align: center;
+  color: var(--muted);
+  cursor: pointer;
+  background: color-mix(in srgb, var(--glass) 60%, transparent);
+}
+.deck-drop.drag-over { border-color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 12%, transparent); }
+.deck-waveform { width: 100%; height: 80px; display: block; border-radius: 0.5rem; background: #0a0e1a; border: 1px solid var(--stroke); }
+.deck-title { font-size: 0.82rem; min-height: 1.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-controls { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.deck-loop { display: flex; gap: 0.3rem; }
+.deck-pitch { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; }
+.deck-eq { display: flex; gap: 0.7rem; font-size: 0.76rem; }
+.deck-eq label { display: grid; gap: 0.2rem; text-align: center; }
+.dj-mixer { display: grid; gap: 0.5rem; border-top: 1px solid var(--stroke); padding-top: 0.7rem; }
+.dj-crossfader { display: grid; gap: 0.3rem; font-size: 0.82rem; }
+#djRecord.recording { background: #c0392b; color: #fff; animation: pulse 1s infinite; }
+@keyframes pulse { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
