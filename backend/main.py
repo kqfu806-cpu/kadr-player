@@ -606,6 +606,7 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
         )
         if image_url and not image_url.startswith("https://lastfm.freetls.fastly.net/"):
             image_url = ""
+    # BUG4 fallback chain: Last.fm -> Deezer (5s) -> iTunes (5s) -> placeholder
     if not image_url:
         try:
             response = await _client().get(
@@ -645,6 +646,35 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
                 artist_name,
                 type(exc).__name__,
             )
+    if not image_url:
+        try:
+            # iTunes fallback https://itunes.apple.com/search?term={name}&entity=musicArtist
+            response = await _client().get(
+                "https://itunes.apple.com/search",
+                params={"term": artist_name, "entity": "musicArtist", "limit": "1"},
+                timeout=5.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            results = payload.get("results", []) if isinstance(payload, dict) else []
+            if isinstance(results, list) and results:
+                item = results[0]
+                if isinstance(item, dict):
+                    candidate = str(item.get("artworkUrl100") or item.get("artworkUrl60") or "")
+                    if candidate.startswith("https://"):
+                        # upgrade to 600x600 if possible
+                        if "100x100" in candidate:
+                            candidate = candidate.replace("100x100", "600x600")
+                        elif "60x60" in candidate:
+                            candidate = candidate.replace("60x60", "600x600")
+                        image_url = candidate
+        except (httpx.HTTPError, ValueError) as exc:
+            logging.getLogger("kadr.artist").warning(
+                "iTunes artist image lookup failed for %s: %s",
+                artist_name,
+                type(exc).__name__,
+            )
+    # if still no image_url, frontend will show заглушка с первой буквой (placeholder)
 
     return {
         "artist": artist_name,

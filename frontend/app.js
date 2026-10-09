@@ -4170,7 +4170,7 @@
     status.textContent = `${profile.local_tracks.length} треков в библиотеке`;
     const fallbackInitial = String(profile.artist || "?").trim().charAt(0).toLocaleUpperCase() || "?";
     const image = profile.image
-      ? `<img class="profile-image" src="${esc(profile.image)}" alt="${esc(profile.artist)}" data-fallback="${esc(fallbackInitial)}" referrerpolicy="no-referrer">`
+      ? `<img class="profile-image" src="${esc(profile.image)}" alt="${esc(profile.artist)}" data-fallback="${esc(fallbackInitial)}" referrerpolicy="no-referrer" onerror="this.onerror=null;const s=document.createElement('span');s.className='profile-image missing';s.textContent=this.dataset.fallback||'?';this.replaceWith(s)">`
       : `<span class="profile-image missing" aria-hidden="true">${esc(fallbackInitial)}</span>`;
     const followed = state.followedArtists.has(profile.artist);
     const bio = profile.bio
