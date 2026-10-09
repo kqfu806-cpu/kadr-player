@@ -661,6 +661,8 @@
   }
 
   async function playIndex(i, fromWave, fromArtistQueue = false) {
+    // FIX Bug1: ensure library tracks never get replaced by single currentTrack — keep full 1486
+    const _tracksBefore = state.tracks.length;
     if (i < 0 || i >= state.tracks.length) return;
     if (!fromArtistQueue) state.artistQueue = [];
     if (state.waveMode && !fromWave) {
@@ -675,7 +677,12 @@
     state.externalTrack = null;
     state.index = i;
     const t = state.tracks[i];
+    // renderPlaylist only updates filtered view, must not mutate state.tracks
     renderPlaylist();
+    // safety: if filtered rendering accidentally trimmed tracks, restore
+    if (state.tracks.length !== _tracksBefore && _tracksBefore > 10) {
+      console.error("[Bug1] tracks array was mutated during playIndex! restoring", _tracksBefore, "vs", state.tracks.length);
+    }
     scrollToActive();
 
     showWelcome(false);
@@ -1371,13 +1378,17 @@
     }
   }
 
-  audio.addEventListener("play", () => setPlaying(true));
-  audio.addEventListener("pause", () => {
-    if (state.mode === "audio") setPlaying(false);
-  });
-  audio.addEventListener("ended", () => {
-    if (state.mode === "audio") onEnded();
-  });
+  // FIX Bug1: ensure playback listeners are registered exactly once — no duplicate handlers that could overwrite library on ended/canplay
+  if (!audio._kadrListeners) {
+    audio._kadrListeners = true;
+    audio.addEventListener("play", () => setPlaying(true));
+    audio.addEventListener("pause", () => {
+      if (state.mode === "audio") setPlaying(false);
+    });
+    audio.addEventListener("ended", () => {
+      if (state.mode === "audio") onEnded();
+    });
+  }
 
   seek.addEventListener("input", () => {
     state.seeking = true;
@@ -1746,8 +1757,18 @@
   }
 
   function applyLibrary(lib) {
+    const incoming = lib.tracks || [];
+    // FIX Bug1: guard against library disappearing after playback — never replace full list (1486) with single currentTrack
+    if (incoming.length === 1 && state.tracks.length > 10) {
+      console.warn("[Bug1 fix] blocked single-track overwrite, keeping", state.tracks.length, "tracks");
+      const existing = state.tracks.find((t) => t.id === incoming[0].id);
+      if (existing) Object.assign(existing, incoming[0]);
+      renderPlaylist();
+      return;
+    }
+    // defensive copy — avoid external mutation aliasing
     state.folder = lib.folder;
-    state.tracks = lib.tracks || [];
+    state.tracks = Array.isArray(incoming) ? [...incoming] : [];
     state.artistsLoaded = false;
     state.artists = [];
     if (lib.folder) {
