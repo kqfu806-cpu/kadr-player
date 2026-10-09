@@ -1602,9 +1602,11 @@
   $("btnPlay").addEventListener("click", togglePlay);
   $("btnFavorite").addEventListener("click", toggleCurrentFavorite);
   $("btnLike")?.addEventListener("click", toggleCurrentLike);
+  // FIX Bug8: dislike only lowers weight in wave_signals, does NOT delete file; like stored in SQLite likes and influences /api/wave/next; separate favorite button
   $("btnDislike")?.addEventListener("click", () => {
     const track = currentTrack();
     if (!track) return;
+    // do not delete file — only send dislike signal to reduce future recommendations
     sendWaveSignal("dislike");
     toast("Учту: меньше таких треков");
   });
