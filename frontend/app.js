@@ -2232,11 +2232,14 @@
     });
   }
 
+  // FIX Bug7: debounce re-render via RAF, plain text static, smooth scroll
+  let lyricHighlightRaf = 0;
+  let lyricPendingIdx = -1;
   function syncLyrics(pos) {
     const data = state.lyrics;
     const scroll = $("lyricsScroll");
     if (!data || !data.lines.length || !scroll) return;
-    if (!data.synced) return;
+    if (!data.synced) return; // plain text without LRC — static, no line highlight
     let idx = 0;
     for (let i = 0; i < data.lines.length; i++) {
       const t = data.lines[i].t;
@@ -2244,30 +2247,40 @@
       if (t <= pos + 0.05) idx = i;
       else break;
     }
-    const nodes = scroll.querySelectorAll(".lyric-line");
-    const paused = performance.now() < (state.lyricPauseUntil || 0);
     if (idx !== state.lyricIndex) {
-      state.lyricIndex = idx;
-      nodes.forEach((el, i) => {
-        const far = i < idx - 2 || i > idx + 2;
-        el.classList.toggle("active", i === idx);
-        el.classList.toggle("near", i === idx - 1 || i === idx + 1);
-        el.classList.toggle("past", i < idx && !far);
-        el.classList.toggle("far", far);
-      });
-      if (!paused) scheduleLyricsScroll(idx);
-    }
-    if (!paused) {
-      const panel = $("lyricsPanel");
-      if (panel.classList.contains("manual")) {
-        panel.classList.remove("manual");
-        scheduleLyricsScroll(idx);
-        const follow = $("btnLyricsFollow");
-        if (follow) follow.classList.add("hidden");
+      lyricPendingIdx = idx;
+      if (!lyricHighlightRaf) {
+        lyricHighlightRaf = requestAnimationFrame(() => {
+          lyricHighlightRaf = 0;
+          const pending = lyricPendingIdx;
+          if (pending === state.lyricIndex) return;
+          const nodes = scroll.querySelectorAll(".lyric-line");
+          const paused = performance.now() < (state.lyricPauseUntil || 0);
+          state.lyricIndex = pending;
+          nodes.forEach((el, i) => {
+            const far = i < pending - 2 || i > pending + 2;
+            el.classList.toggle("active", i === pending);
+            el.classList.toggle("near", i === pending - 1 || i === pending + 1);
+            el.classList.toggle("past", i < pending && !far);
+            el.classList.toggle("far", far);
+          });
+          if (!paused) scheduleLyricsScroll(pending);
+          // handle manual scroll follow inside RAF as well
+          const panel = $("lyricsPanel");
+          if (panel.classList.contains("manual") && !paused) {
+            panel.classList.remove("manual");
+            scheduleLyricsScroll(pending);
+            const follow = $("btnLyricsFollow");
+            if (follow) follow.classList.add("hidden");
+          }
+        });
       }
     }
-    const line = data.lines[idx];
-    const node = nodes[idx];
+    // word-level highlight still runs outside RAF but throttled 100ms; plain text static already returned
+    const curIdx = idx;
+    const allNodes = scroll.querySelectorAll(".lyric-line");
+    const line = data.lines[curIdx];
+    const node = allNodes[curIdx];
     const nowW = performance.now();
     if (line && line.words && line.words.length && node && nowW - (state._wordTick || 0) > 100) {
       state._wordTick = nowW;
@@ -2283,7 +2296,7 @@
       const fill = ((wi + 1) / line.words.length) * 100;
       node.style.setProperty("--fill", fill + "%");
     } else if (node && line && !(line.words && line.words.length)) {
-      const next = data.lines[idx + 1];
+      const next = data.lines[curIdx + 1];
       const t0 = line.t || 0;
       const t1 = next && next.t != null ? next.t : t0 + 4;
       const p = Math.max(0, Math.min(1, (pos - t0) / Math.max(0.2, t1 - t0)));

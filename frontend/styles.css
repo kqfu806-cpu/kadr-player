@@ -1045,6 +1045,7 @@ html:not(.collapsed) .rail-open { display: none !important; }
 .topbar, .sidebar, .player, .side-handle, .rail-open {
   transition: opacity 0.28s ease;
 }
+/* FIX Bug7: smooth lyrics highlight — no jitter, opacity >=0.5, 300ms, smooth scroll, plain static */
 .lyric-line {
   min-height: var(--lh);
   display: flex;
@@ -1057,7 +1058,7 @@ html:not(.collapsed) .rail-open { display: none !important; }
   letter-spacing: -0.02em;
   color: #fff;
   text-shadow: 0 0.15rem 1.2rem rgba(0,0,0,0.65);
-  opacity: 0.22;
+  opacity: 0.5;
   filter: blur(0.12rem);
   transform: scale(0.96);
   transition: opacity 300ms ease, filter 300ms ease, transform 300ms ease;
@@ -1065,7 +1066,7 @@ html:not(.collapsed) .rail-open { display: none !important; }
   cursor: pointer;
 }
 .lyric-line.active { opacity: 1; filter: blur(0); transform: scale(1.02); }
-.lyric-line.near   { opacity: 0.5; filter: blur(0.5px); transform: none; }
+.lyric-line.near   { opacity: 0.75; filter: blur(0.5px); transform: none; }
 .lyric-line.past   { opacity: 0.5; filter: blur(1.5px); transform: none; }
 .lyric-line.far    { opacity: 0.5; filter: blur(2.5px); }
 .lyrics.plain .lyric-line,
