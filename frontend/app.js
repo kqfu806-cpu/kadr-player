@@ -3441,7 +3441,7 @@
     const opacitySlider = $("interfaceOpacity");
     const opacityValue = $("interfaceOpacityValue");
     const presetKey = "kadr-theme-preset";
-    const presets = ["dark","light","cyberpunk","samurai","dragon","auto"];
+    const presets = ["dark","light","anime","cyberpunk","samurai","dragon","auto"];
     let themeMode = "dark";
     try {
       const savedPreset = localStorage.getItem(presetKey);
