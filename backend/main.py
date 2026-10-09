@@ -56,6 +56,7 @@ from . import stats as listening_stats
 from .uncensored_finder import find_candidates
 from .uncensored_replacer import replace_track
 from . import dj as dj_engine
+from . import network_router
 from . import wave as wave_engine
 from . import weekly as weekly_engine
 
@@ -230,6 +231,7 @@ uncensored_replace_state: dict[str, Any] = {
 }
 wave_embedding_task: asyncio.Task[int] | None = None
 wave_embedding_maintenance_task: asyncio.Task[None] | None = None
+network_check_task: asyncio.Task[None] | None = None
 wave_embedding_state: dict[str, Any] = {
     "status": "idle",
     "embedded": 0,
@@ -305,6 +307,12 @@ async def _startup() -> None:
     )
     lastfm_client.client = http_client
     await ollama.refresh_status(http_client)
+    # start VPN network checks each 5min
+    global network_check_task
+    try:
+        network_check_task = asyncio.create_task(network_router.background_loop(http_client))
+    except Exception:
+        pass
     st = ollama.status.to_dict()
     print("=== Курымдык ===")
     print(f"UI:     http://{HOST}:{PORT}")
@@ -316,7 +324,7 @@ async def _shutdown() -> None:
     global wave_embedding_task, wave_embedding_maintenance_task
     tasks = [
         task
-        for task in (wave_embedding_task, wave_embedding_maintenance_task)
+        for task in (wave_embedding_task, wave_embedding_maintenance_task, network_check_task)
         if task and not task.done()
     ]
     for task in tasks:
@@ -1319,6 +1327,19 @@ async def api_bpm(track_id: str) -> dict:
         raise HTTPException(404, "Трек не найден")
     bpm = dj_engine.get_bpm(track.id, track.path)
     return {"track_id": track.id, "bpm": bpm, "confidence": 0.85}
+
+
+@app.get("/api/network/status")
+async def api_network_status() -> dict[str, Any]:
+    # ensure we have at least one check; if unknown, try quick check
+    status = network_router.get_status()
+    if status.get("lastfm") == "unknown":
+        try:
+            client = _client()
+            status = await network_router.check_once(client)
+        except Exception:
+            pass
+    return status
 
 
 @app.get("/api/lyrics/{track_id}")

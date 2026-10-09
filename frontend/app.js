@@ -3437,6 +3437,36 @@
     window.setInterval(() => {
       if (themeMode === "auto") applyPreset("auto", false);
     }, 60_000);
+
+    // VPN routing network status indicator — poll each 5min
+    (async () => {
+      const el = $("networkStatus");
+      if(!el) return;
+      async function refreshNetwork(){
+        try{
+          const st = await api("/api/network/status");
+          const services = ["lastfm","deezer","itunes"];
+          const labels = {lastfm:"Last.fm", deezer:"Deezer", itunes:"iTunes"};
+          const downs = services.filter(k=> st[k]==="down");
+          if(downs.length){
+            const names = downs.map(k=> labels[k]||k).join(", ");
+            el.textContent = `Сервис ${names} недоступен, проверьте VPN`;
+            el.className = "network-status down";
+          } else if(services.some(k=> st[k]==="ok")){
+            el.textContent = "Сеть: все сервисы доступны";
+            el.className = "network-status ok";
+          } else {
+            el.textContent = "Проверка сети…";
+            el.className = "network-status muted";
+          }
+        }catch(e){
+          el.textContent = "Не удалось проверить сеть";
+          el.className = "network-status warn";
+        }
+      }
+      await refreshNetwork();
+      setInterval(refreshNetwork, 5*60*1000);
+    })();
   })();
 
   function updateNowPlaying() {

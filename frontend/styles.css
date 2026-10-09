@@ -2189,3 +2189,8 @@ html[data-theme="dragon"] .app-bg::before {
 @media (max-width: 760px){
   .display-modes { bottom: 1.8rem; flex-wrap: wrap; justify-content: center; max-width: 92vw; }
 }
+
+.network-status { font-size: 0.72rem; padding: 0.4rem 0; }
+.network-status.ok { color: var(--muted); }
+.network-status.warn { color: #e67e22; }
+.network-status.down { color: #e74c3c; font-weight: 600; }
