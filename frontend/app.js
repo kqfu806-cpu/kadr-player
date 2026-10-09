@@ -293,6 +293,56 @@
     setTimeout(() => el.remove(), 3800);
   }
 
+  // Task1: download helper with spinner and library reload
+  async function triggerDownload(opts, button) {
+    const { url, artist, title, album, year, track_no } = opts;
+    if (button) {
+      button.disabled = true;
+      button.classList.add("downloading");
+      button.innerHTML = '<span class="spinner small"></span>';
+    }
+    try {
+      let data;
+      if (url) {
+        data = await api("/api/download", { method: "POST", body: JSON.stringify({ url, artist, title, album, year, track_no }) });
+      } else {
+        data = await api("/api/download/by-search", { method: "POST", body: JSON.stringify({ artist, title, album, year }) });
+      }
+      if (data.task_id) {
+        toast(`Скачивается: ${artist} — ${title}`);
+        // poll for direct url case too
+        for (let i=0;i<30;i++) {
+          await new Promise(r=>setTimeout(r,1200));
+          try {
+            const st = await api(`/api/download/status/${data.task_id}`);
+            if (st.status==="done") { toast(`Скачано: ${title}`); break; }
+            if (st.status==="exists") { toast(`Уже есть: ${title}`); break; }
+            if (st.status==="error") throw new Error(st.detail||"Ошибка");
+          } catch(e){ if(i>5) throw e; }
+        }
+      } else if (data.status==="ok") {
+        toast(`Скачано: ${title}`);
+      } else if (data.status==="exists") {
+        toast(`Уже есть: ${title}`);
+      } else {
+        toast(`Скачивается: ${artist} — ${title}`);
+      }
+      // reload library
+      try {
+        const lib = await api("/api/library");
+        applyLibrary(lib);
+      } catch(e){}
+    } catch (err) {
+      toast(`Ошибка скачивания: ${err.message}`);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.classList.remove("downloading");
+        button.textContent = "⬇️";
+      }
+    }
+  }
+
   function setOllamaPill(info) {
     const pill = $("ollamaPill");
     const lbl = pill.querySelector(".lbl");
@@ -1033,10 +1083,23 @@
 
   async function toggleCurrentLike() {
     const track = currentTrack();
-    if (!track || track.external) return;
+    if (!track) return;
+    // if external preview, also download
+    if (track.external) {
+      const signal = "like";
+      await sendWaveSignal(signal).catch(()=>{});
+      toast(`Скачивается: ${track.artist} — ${track.title}`);
+      await triggerDownload({artist: track.artist, title: track.title, url: track.preview || track.url || ""}, null);
+      return;
+    }
     const signal = state.likedTracks.has(track.id) ? "dislike" : "like";
     const result = await sendWaveSignal(signal);
     if (result) toast(signal === "like" ? "Лайк сохранён" : "Лайк убран; учту меньше похожих");
+    // if like and not in library, download in background
+    if (signal==="like" && !state.tracks.some(t=>t.id===track.id)) {
+      toast(`Скачивается: ${track.artist} — ${track.title}`);
+      triggerDownload({artist: track.artist, title: track.title}, null);
+    }
   }
 
   function toggleFavoritesFilter() {
@@ -3135,11 +3198,14 @@
       const preview = withPreview && release.preview
         ? `<audio class="release-preview" controls preload="none" src="${esc(release.preview)}" aria-label="Предпрослушать ${esc(release.title)}"></audio>`
         : "";
+      // check if already in library
+      const inLib = state.tracks.some(t=> t.artist.toLowerCase()===String(release.artist).toLowerCase() && t.title.toLowerCase()===String(release.title).toLowerCase());
+      const dlBtn = inLib ? "" : `<button class="btn ghost" type="button" data-download data-artist="${esc(release.artist)}" data-title="${esc(release.title)}" data-album="" title="Скачать">⬇️</button>`;
       return `<li class="release-row">` +
         `${cover ? `<img class="release-cover" src="${esc(cover)}" alt="" loading="lazy">` : `<span class="release-cover missing" aria-hidden="true"></span>`}` +
         `<div class="release-info"><a class="release-title" href="${esc(release.url)}" target="_blank" rel="noopener noreferrer">${esc(release.title)}</a>` +
         `<span class="release-artist">${esc(release.artist)} · ${esc(date)}</span>${preview}</div>` +
-        `${url ? `<a class="artist-source" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="Открыть релиз в ${esc(release.source || "каталоге")}" aria-label="Открыть ${esc(release.title)} в ${esc(release.source || "каталоге")}">↗</a>` : ""}` +
+        `${dlBtn}${url ? `<a class="artist-source" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="Открыть релиз в ${esc(release.source || "каталоге")}" aria-label="Открыть ${esc(release.title)} в ${esc(release.source || "каталоге")}">↗</a>` : ""}` +
         `</li>`;
     };
     tracksHost.innerHTML = tracks.map((release) => row(release, true)).join("");
@@ -3438,12 +3504,15 @@
           year: "numeric",
         });
       }
+      const inLib = state.tracks.some(t=> t.artist.toLowerCase()===String(item.artist).toLowerCase() && t.title.toLowerCase()===String(item.title).toLowerCase());
+      const dlBtn2 = inLib ? "" : `<button class="btn ghost" type="button" data-download data-artist="${esc(item.artist)}" data-title="${esc(item.title)}" title="Скачать">⬇️</button>`;
       return `<article class="weekly-card">` +
         `${cover ? `<img class="weekly-cover" src="${esc(cover)}" alt="" loading="lazy">` : `<div class="weekly-cover" aria-hidden="true"></div>`}` +
         `<div class="weekly-card-info"><span class="weekly-card-title" title="${esc(item.title)}">${esc(item.title)}</span>` +
         `<span class="weekly-card-meta">${esc(item.artist)} · ${esc(releaseDate)}</span></div>` +
         `<div class="weekly-card-actions">` +
         `${link ? `<a class="btn ghost" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${linkLabel}</a>` : ""}` +
+        `${dlBtn2}` +
         `${saved ? `<span class="weekly-saved">Отмечено · не скачано</span>` : `<button class="btn ghost" type="button" data-weekly-save="${esc(key)}">Сохранить в библиотеку</button>`}` +
         `</div></article>`;
     }).join("");
@@ -3689,7 +3758,7 @@
       ? profile.top_tracks.map((track) => {
         const action = track.in_library
           ? `<span class="muted">В библиотеке</span>`
-          : `<button class="btn ghost" type="button" disabled title="Скачивание пока недоступно">Скачать</button>`;
+          : `<button class="btn ghost" type="button" data-download data-artist="${esc(track.artist||profile.artist)}" data-title="${esc(track.title)}" data-url="${esc(track.url||"")}" title="Скачать">⬇️ Скачать</button>`;
         return `<li><span class="profile-track-main">${esc(track.title)}<small>${esc(track.listeners)} ${window.i18n ? window.i18n.t("profile.listeners") : "прослушиваний"}</small></span>${action}</li>`;
       }).join("")
       : `<li class="muted">Last.fm не вернул топ-треки.</li>`;
@@ -3846,6 +3915,44 @@
     $("tabNewTracks").setAttribute("aria-selected", "false");
     $("newAlbumsList").classList.remove("hidden");
     $("newTracksList").classList.add("hidden");
+  });
+
+
+  // Task1: delegated download handler for all download buttons
+  document.addEventListener("click", async (e) => {
+    const dlBtn = e.target.closest("[data-download]");
+    if (dlBtn) {
+      e.preventDefault();
+      const artist = dlBtn.dataset.artist || "";
+      const title = dlBtn.dataset.title || "";
+      const album = dlBtn.dataset.album || "";
+      const url = dlBtn.dataset.url || "";
+      const year = dlBtn.dataset.year || "";
+      if (url) {
+        await triggerDownload({url, artist, title, album, year}, dlBtn);
+      } else {
+        await triggerDownload({artist, title, album, year}, dlBtn);
+      }
+      return;
+    }
+    const weeklySave = e.target.closest("[data-weekly-save]");
+    if (weeklySave) {
+      // intercept weekly save to trigger download
+      const key = weeklySave.dataset.weeklySave;
+      // find item in state.weeklyData
+      const all = [...(state.weeklyData?.tracks||[]), ...(state.weeklyData?.albums||[])];
+      // weeklyKey is encoded artist+title+date, need to find by key
+      for (const item of all) {
+        const k = encodeURIComponent([item.artist, item.title, item.date].map(v=>String(v||"")).join("\u001f"));
+        if (k===key) {
+          await triggerDownload({artist:item.artist, title:item.title, album:"", year:""}, weeklySave);
+          weeklySaved.add(key);
+          try{localStorage.setItem(weeklySavedKey, JSON.stringify([...weeklySaved]));}catch(_){}
+          renderWeeklyItems(state.weeklyData||{});
+          break;
+        }
+      }
+    }
   });
 
   // init

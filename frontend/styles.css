@@ -973,6 +973,8 @@ html:not(.collapsed) .rail-open { display: none !important; }
   border-radius: 50%;
   animation: rot 0.8s linear infinite;
 }
+.spinner.small { width: 1rem; height: 1rem; border-width: 0.14rem; display: inline-block; vertical-align: middle; }
+.btn.downloading { opacity: 0.7; pointer-events: none; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
 /* Текст ПОВЕРХ кадра и видео, снизу */

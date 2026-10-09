@@ -44,6 +44,7 @@ from .error_logging import configure_error_logging
 from .censorship_detector import detect_suspects
 from .covers import fetch_cover_report, proxy_cover
 from .index_store import IndexStore
+from .audio_fetcher import AudioFetcher
 from .lastfm_client import LastFmClient, LastFmConfigurationError, LastFmError
 from .lyrics import fetch_lyrics, lyrics_cache_path
 from .media_resolver import MediaResolver
@@ -162,6 +163,8 @@ track_index = IndexStore()
 ollama = OllamaClient(OLLAMA_URL)
 resolver = MediaResolver(cache, ollama, track_index)
 lastfm_client = LastFmClient()
+audio_fetcher = AudioFetcher()
+download_tasks: dict[str, dict[str, Any]] = {}
 
 # Состояние библиотеки в памяти
 library: dict[str, Track] = {}
@@ -848,6 +851,94 @@ async def api_wave_signal(body: dict[str, Any]) -> dict[str, Any]:
         genre=str(getattr(track, "genre", "") or ""),
     )
 
+
+# ---------- Download API (Task1) ----------
+import uuid as _uuid
+
+def _sanitize_fs(name: str) -> str:
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip()
+    name = re.sub(r"\s+", " ", name)
+    return (name[:100] if len(name) > 100 else name) or "Unknown"
+
+def _download_target_path(artist: str, title: str, album: str, year: str, track_no: str, library_folder: str | None) -> Path:
+    base = Path(library_folder or current_folder or str(DEFAULT_MUSIC_FOLDER))
+    artist_dir = _sanitize_fs(artist or "Unknown Artist")
+    album_dir = f"{_sanitize_fs(year) + ' - ' if year else ''}{_sanitize_fs(album or 'Singles')}"
+    filename = f"{_sanitize_fs(track_no).zfill(2) + ' - ' if track_no else ''}{_sanitize_fs(title or 'Unknown Title')}"
+    return base / artist_dir / album_dir / filename
+
+@app.post("/api/download")
+async def api_download(body: dict[str, Any]) -> dict[str, Any]:
+    url = str(body.get("url") or "").strip()
+    artist = str(body.get("artist") or "").strip()
+    title = str(body.get("title") or "").strip()
+    album = str(body.get("album") or "").strip()
+    year = str(body.get("year") or "").strip()
+    track_no = str(body.get("track_no") or body.get("track") or "").strip()
+    if not url or not artist or not title:
+        raise HTTPException(400, "Нужно url, artist, title")
+    if not url.startswith("https://"):
+        raise HTTPException(400, "URL должен быть https")
+    # Validate host for safety
+    try:
+        parsed = httpx.URL(url)
+        if parsed.scheme != "https":
+            raise ValueError()
+    except Exception:
+        raise HTTPException(400, "Некорректный URL")
+    target = _download_target_path(artist, title, album, year, track_no, current_folder)
+    final = target.with_suffix(".opus")
+    if final.is_file():
+        return {"status": "exists", "path": str(final)}
+    task_id = _uuid.uuid4().hex[:12]
+    download_tasks[task_id] = {"status": "queued", "progress": 0, "url": url, "artist": artist, "title": title}
+    async def _run():
+        try:
+            download_tasks[task_id]["status"] = "downloading"
+            download_tasks[task_id]["progress"] = 10
+            result = audio_fetcher.fetch_with_tags(url, target, artist, title, album, year, track_no)
+            if result.get("status") == "exists":
+                download_tasks[task_id].update(status="exists", path=result.get("path"), progress=100)
+                return
+            if result.get("status") != "ok":
+                download_tasks[task_id].update(status="error", detail=result.get("detail"), progress=100)
+                return
+            path = result.get("path")
+            download_tasks[task_id].update(status="done", path=path, progress=100)
+            # Update library
+            try:
+                from .scanner import read_track
+                tr = read_track(Path(path))
+                if tr:
+                    library[tr.id] = tr
+                    track_index.upsert(tr.id, path=tr.path, artist=tr.artist, title=tr.title, album=tr.album, duration=tr.duration)
+            except Exception as exc:
+                logging.getLogger("kadr.download").warning("Library update failed for %s: %s", path, exc)
+        except Exception as exc:
+            logging.getLogger("kadr.download").exception("Download task failed")
+            download_tasks[task_id].update(status="error", detail=str(exc), progress=100)
+    asyncio.create_task(_run())
+    return {"status": "queued", "task_id": task_id, "path": str(final)}
+
+@app.post("/api/download/by-search")
+async def api_download_by_search(body: dict[str, Any]) -> dict[str, Any]:
+    artist = str(body.get("artist") or "").strip()
+    title = str(body.get("title") or "").strip()
+    album = str(body.get("album") or "").strip()
+    year = str(body.get("year") or "").strip()
+    if not artist or not title:
+        raise HTTPException(400, "Нужно artist и title")
+    url = audio_fetcher.search_url(artist, title)
+    if not url:
+        raise HTTPException(404, "Не удалось найти URL для скачивания")
+    return await api_download({"url": url, "artist": artist, "title": title, "album": album, "year": year})
+
+@app.get("/api/download/status/{task_id}")
+async def api_download_status(task_id: str) -> dict[str, Any]:
+    task = download_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "Задача не найдена")
+    return task
 
 @app.post("/api/new-releases")
 async def api_new_releases(body: dict[str, Any]) -> dict[str, Any]:
