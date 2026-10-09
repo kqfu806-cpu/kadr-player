@@ -173,6 +173,65 @@ library: dict[str, Track] = {}
 current_folder: str | None = None
 
 
+def parse_artists(value: str) -> list[str]:
+    """BUG3: if title/artist contains feat., ft., x, & -> split into artists array. Handles Честный знак feat. case."""
+    if not value or not isinstance(value, str):
+        return []
+    value = value.strip()
+    if not value:
+        return []
+    # split on feat./ft./featuring / x / & / + / , with optional brackets
+    # also handle "feat" with parentheses: "Честный знак (feat. Яникс)"
+    # Normalize: remove enclosing brackets around feat part for split
+    # Regex: split markers
+    parts = re.split(r'\s*(?:\(|\[)?\s*(?:feat\.?|ft\.?|featuring)\s*\.?\s*(?:\)|\])?\s*|\s+x\s+|\s+&\s+|\s*\+\s*|\s*,\s*', value, flags=re.I)
+    # parts may still contain empty or punctuation
+    artists = []
+    for part in parts:
+        part = part.strip(" \t\n\r\f\v()[]\"'—-")
+        if part:
+            # Further split if still contains & or feat residual (e.g., "Яникс & Вася")
+            # Already split, but double-check for leftover separators inside
+            sub = re.split(r'\s+x\s+|\s+&\s+', part, flags=re.I)
+            for s in sub:
+                s = s.strip(" \t\n\r\f\v()[]\"'—-")
+                if s:
+                    artists.append(s)
+    # Deduplicate preserving order, case-insensitive dedup
+    seen = set()
+    uniq = []
+    for a in artists:
+        key = a.casefold()
+        if key not in seen:
+            seen.add(key)
+            uniq.append(a)
+    return uniq
+
+def parse_artists_from_track(artist: str, title: str) -> list[str]:
+    """Combine primary artist and featured from title for indexing, dedup track_id once."""
+    primary = parse_artists(artist) if artist else []
+    # Extract featured part from title after feat marker
+    feat_extra: list[str] = []
+    if title:
+        # Look for feat. in title: "Честный знак feat. Яникс" or "(feat. Яникс)"
+        m = re.search(r'(?:feat\.?|ft\.?|featuring)\s*\.?\s*(.+)$', title, flags=re.I)
+        if m:
+            feat_part = m.group(1)
+            # Remove trailing bracket/parens and prod notes
+            feat_part = re.sub(r'\s*[\(\[].*?[\]\)]\s*$', '', feat_part).strip()
+            feat_extra = parse_artists(feat_part)
+        else:
+            # Also check for " x " or " & " inside title that might denote collab: but title is song name, not artists
+            # We should not treat those as artists unless title contains them as separator between artists?
+            # For case "Полка x Яникс - Честный знак", the artist field already contains "Полка x Яникс", so covered
+            pass
+    # If primary empty but title had feat, primary may be inside title? For filename fallback case, already handled.
+    combined = primary + [a for a in feat_extra if a.casefold() not in {p.casefold() for p in primary}]
+    # If still single, return primary
+    if not combined:
+        return [artist.strip()] if artist.strip() else [title.strip()] if title else []
+    return combined
+
 def _saved_library_folder() -> str | None:
     # FIX Bug5: persist music folder with unicode (Cyrillic) correctly — uses utf-8 TEXT
     if not APP_SETTINGS_DB_PATH.is_file():
@@ -460,11 +519,28 @@ async def api_artist_profile(name: str) -> dict[str, Any]:
         warnings.append("Данные об артисте недоступны. Проверьте VPN или интернет")
 
     artist_keys = {artist_name.casefold(), name.casefold()}
-    local_tracks = [
-        track.to_dict()
-        for track in library.values()
-        if track.artist.strip().casefold() in artist_keys
-    ]
+    # BUG3: filter feat tracks without duplication: parse_artists for each track
+    seen_ids: set[str] = set()
+    local_tracks = []
+    for track in library.values():
+        # Build artists array for this track (primary + feat)
+        track_artists = parse_artists_from_track(track.artist, track.title)
+        # Also consider index stored artists if available
+        try:
+            idx = track_index.get(track.id)
+            if idx and idx.get("artists"):
+                # merge
+                for a in idx.get("artists", []):
+                    if a not in track_artists:
+                        track_artists.append(a)
+        except Exception:
+            pass
+        # Normalize keys
+        track_keys = {a.strip().casefold() for a in track_artists}
+        if track_keys & artist_keys:
+            if track.id not in seen_ids:
+                seen_ids.add(track.id)
+                local_tracks.append(track.to_dict())
     formatted_tracks = []
     for track in top_tracks:
         title = str(track.get("name") or "").strip()
@@ -924,7 +1000,8 @@ async def api_download(body: dict[str, Any]) -> dict[str, Any]:
                 tr = read_track(Path(path))
                 if tr:
                     library[tr.id] = tr
-                    track_index.upsert(tr.id, path=tr.path, artist=tr.artist, title=tr.title, album=tr.album, duration=tr.duration)
+                    arts = parse_artists_from_track(tr.artist, tr.title)
+                    track_index.upsert(tr.id, path=tr.path, artist=tr.artist, title=tr.title, album=tr.album, duration=tr.duration, artists=arts)
             except Exception as exc:
                 logging.getLogger("kadr.download").warning("Library update failed for %s: %s", path, exc)
         except Exception as exc:
@@ -1032,6 +1109,11 @@ async def scan(body: dict[str, Any]) -> dict[str, Any]:
     library = {t.id: t for t in tracks}
     current_folder = resolved_folder
     _save_library_folder(current_folder)
+    # BUG3: store artists array once per track_id, not duplicate
+    for tr in tracks:
+        artists = parse_artists_from_track(tr.artist, tr.title)
+        # ensure track_id saved once with artists array
+        track_index.upsert(tr.id, path=tr.path, artist=tr.artist, title=tr.title, album=tr.album, duration=tr.duration, artists=artists)
     return {
         "folder": current_folder,
         "count": len(tracks),
@@ -1128,6 +1210,7 @@ def _refresh_replaced_track(track_id: str, new_path: str) -> Track:
         title=replacement.title,
         album=replacement.album,
         duration=replacement.duration,
+        artists=parse_artists_from_track(replacement.artist, replacement.title),
     )
     return replacement
 
@@ -1361,6 +1444,7 @@ async def lyrics(track_id: str, force: bool = False) -> dict[str, Any]:
             else None
         ),
         lyrics_source=data.get("source"),
+        artists=parse_artists_from_track(track.artist, track.title),
     )
     return data
 
@@ -1400,6 +1484,7 @@ async def cover_find(track_id: str) -> dict[str, Any]:
         track.id,
         cover=f"cache/covers/{cover['file']}",
         cover_source=cover.get("source"),
+        artists=parse_artists_from_track(track.artist, track.title),
     )
     return {
         "ok": True,
