@@ -241,6 +241,7 @@ button { cursor: pointer; }
   pointer-events: none;
 }
 .global-search input:focus { border-color: color-mix(in srgb, var(--text) 48%, transparent); }
+/* FIX Bug6: use --bg-opacity rgba instead of hex for all surfaces */
 .global-search-results {
   position: absolute;
   top: calc(100% + 0.45rem);
@@ -252,7 +253,7 @@ button { cursor: pointer; }
   padding: 0.45rem;
   border: 1px solid var(--stroke);
   border-radius: 1rem;
-  background: color-mix(in srgb, var(--bg) 93%, #222);
+  background: var(--bg-opacity);
   box-shadow: 0 1rem 3rem rgba(0,0,0,0.42);
   backdrop-filter: blur(22px);
 }
@@ -1237,7 +1238,7 @@ input[type="range"]::-webkit-slider-thumb {
 .quality-table-wrap { flex: 1; min-height: 20vh; overflow: auto; padding: 0 0.7rem 0.75rem; }
 .quality-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
 .quality-table th, .quality-table td { padding: 0.55rem; border-bottom: 1px solid var(--stroke); text-align: left; vertical-align: top; }
-.quality-table th { position: sticky; top: 0; z-index: 1; background: var(--bg); }
+.quality-table th { position: sticky; top: 0; z-index: 1; background: var(--bg-opacity); }
 .quality-track { min-width: 13rem; max-width: 25rem; overflow-wrap: anywhere; }
 .quality-track small, .quality-candidate small { display: block; color: var(--muted); margin-top: 0.2rem; }
 .quality-candidate { min-width: 12rem; }
@@ -1853,7 +1854,7 @@ input[type="range"]::-webkit-slider-thumb {
   z-index: 5;
   overflow: auto;
   padding: clamp(1rem, 2.5vw, 2rem);
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  background: var(--bg-opacity);
   backdrop-filter: blur(24px);
 }
 .listening-stats .profile-toolbar { flex-wrap: wrap; }
@@ -1878,7 +1879,7 @@ input[type="range"]::-webkit-slider-thumb {
 .stats-card, .stats-panel {
   border: 1px solid var(--stroke);
   border-radius: 0.9rem;
-  background: color-mix(in srgb, var(--glass) 86%, transparent);
+  background: var(--bg-opacity);
 }
 .stats-card { display: grid; gap: 0.25rem; padding: 0.9rem 1rem; }
 .stats-card span, .stats-card small { color: var(--muted); font-size: 0.76rem; }
@@ -1916,7 +1917,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: conic-gradient(var(--stroke) 0 100%);
   position: relative;
 }
-.stats-donut::after { content: ""; position: absolute; inset: 24%; border-radius: 50%; background: var(--bg); }
+.stats-donut::after { content: ""; position: absolute; inset: 24%; border-radius: 50%; background: var(--bg-opacity); }
 .stats-legend { list-style: none; max-height: 13rem; overflow: auto; margin: 0; padding: 0; }
 .stats-legend li { display: flex; align-items: center; gap: 0.45rem; padding: 0.22rem 0; color: var(--muted); font-size: 0.76rem; }
 .stats-legend i { flex: 0 0 0.6rem; width: 0.6rem; height: 0.6rem; border-radius: 50%; }
@@ -1927,7 +1928,7 @@ input[type="range"]::-webkit-slider-thumb {
   z-index: 6;
   overflow: auto;
   padding: clamp(1rem, 2.5vw, 2rem);
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  background: var(--bg-opacity);
   backdrop-filter: blur(24px);
 }
 .weekly-toolbar { max-width: 76rem; margin: 0 auto 1rem; }
@@ -1947,6 +1948,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1px solid var(--stroke);
   border-radius: 0.9rem;
   background: var(--bg-opacity);
+  /* FIX Bug6: ensure opacity applies to cards */
 }
 .weekly-cover { display: block; width: 100%; aspect-ratio: 1.6; object-fit: cover; background: var(--glass); }
 .weekly-card-info { display: grid; gap: 0.22rem; padding: 0.8rem 0.9rem; }
