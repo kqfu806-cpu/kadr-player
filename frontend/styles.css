@@ -1837,7 +1837,15 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 0.75rem;
 }
 .profile-open:hover { color: var(--accent-2); text-decoration: underline; }
-.profile-similar { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+/* FIX Bug4: round clickable avatars for similar artists, 1600px max for 2560x1440 without vertical scroll */
+.profile-content { max-width: 1600px; } /* explicit 1600px for 2560x1440 */
+.profile-similar { display: flex; flex-wrap: wrap; gap: 0.65rem; align-content: start; }
+.similar-avatar { display: grid; justify-items: center; gap: 0.35rem; width: 5.2rem; border: 0; background: transparent; cursor: pointer; }
+.similar-avatar-img { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent-1), var(--accent-3)); color: #fff; font-weight: 700; font-size: 1.4rem; overflow: hidden; box-shadow: 0 0.35rem 1rem rgba(0,0,0,0.28); }
+.similar-avatar-img img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.similar-avatar-name { font-size: 0.68rem; color: var(--muted); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 5.2rem; }
+.similar-avatar:hover .similar-avatar-img { transform: scale(1.06); box-shadow: 0 0.5rem 1.2rem rgba(0,0,0,0.32); }
+.similar-avatar:hover .similar-avatar-name { color: var(--text); }
 .profile-warning { color: var(--muted); font-size: 0.8rem; }
 .listening-stats {
   position: absolute;

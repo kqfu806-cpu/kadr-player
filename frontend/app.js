@@ -3668,8 +3668,14 @@
         return `<li><span class="profile-track-main">${esc(track.title)}<small>${esc(track.listeners)} ${window.i18n ? window.i18n.t("profile.listeners") : "прослушиваний"}</small></span>${action}</li>`;
       }).join("")
       : `<li class="muted">Last.fm не вернул топ-треки.</li>`;
-    const similar = (profile.similar || []).map((artist) =>
-      `<button class="similar-chip" type="button" data-profile-artist="${esc(artist.name)}">${esc(artist.name)}</button>`).join("");
+    // FIX Bug4: round clickable avatars for similar artists (fallback to first letter gradient)
+    const similar = (profile.similar || []).map((artist) => {
+      const initial = String(artist.name || "?").trim().charAt(0).toLocaleUpperCase() || "?";
+      const avatarInner = artist.image
+        ? `<img src="${esc(artist.image)}" alt="${esc(artist.name)}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${esc(initial)}'}))">`
+        : `${esc(initial)}`;
+      return `<button class="similar-avatar" type="button" data-profile-artist="${esc(artist.name)}" title="${esc(artist.name)}"><span class="similar-avatar-img">${avatarInner}</span><span class="similar-avatar-name">${esc(artist.name)}</span></button>`;
+    }).join("");
     const releases = (profile.releases || []).length
       ? profile.releases.map((release) =>
         `<li><span class="profile-track-main">${esc(release.title)}<small>${esc(window.i18n ? window.i18n.date(release.date) : release.date)} · ${esc(release.type || "релиз")}</small></span>` +
