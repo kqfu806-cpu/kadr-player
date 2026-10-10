@@ -3711,6 +3711,49 @@ const clipCache = new Map();
     });
     // initial preset apply without persist to set correct UI
     applyPreset(themeMode, false);
+    // БАГ8: аниме-обои меняются только при перезагрузке — добавить кнопку и ротацию 30мин
+    const wallpaperKey = "kadr-wallpaper-index";
+    const wallpapers = [
+      null,
+      "radial-gradient(45% 45% at 20% 15%, rgba(255,107,157,0.32), transparent 60%), radial-gradient(50% 50% at 85% 10%, rgba(0,212,255,0.32), transparent 58%), linear-gradient(125deg, #0f0a1a, #1a0f2e, #2a0f2e, #0f1f3e)",
+      "radial-gradient(40% 40% at 15% 80%, rgba(157,124,255,0.28), transparent 60%), radial-gradient(45% 45% at 85% 70%, rgba(255,107,157,0.25), transparent 58%), linear-gradient(125deg, #0f0a1a, #1f0a2e, #0f1a3e)",
+      "radial-gradient(50% 50% at 50% 20%, rgba(0,212,255,0.22), transparent 62%), radial-gradient(30% 30% at 10% 30%, rgba(255,107,157,0.20), transparent 58%), linear-gradient(125deg, #0a0f1a, #0f1a2e, #1a0f3e)"
+    ];
+    function applyWallpaper(idx){
+      const bg = document.getElementById("appBg");
+      const ambient = document.getElementById("ambient");
+      const val = wallpapers[idx % wallpapers.length];
+      try{ localStorage.setItem(wallpaperKey, String(idx % wallpapers.length)); }catch(_){}
+      if(!val){
+        if(bg) bg.style.background = "";
+        if(ambient) ambient.style.background = "";
+      } else {
+        if(ambient) ambient.style.background = val;
+        if(bg) bg.style.background = val;
+      }
+      document.documentElement.style.setProperty("--wallpaper-index", String(idx));
+      console.log("[wallpaper] apply", idx, val? val.slice(0,40): "default");
+    }
+    let wallpaperIndex = 0;
+    try{
+      const saved = localStorage.getItem(wallpaperKey);
+      if(saved!==null) wallpaperIndex = parseInt(saved,10)||0;
+      else wallpaperIndex = Math.floor(Math.random()*wallpapers.length);
+    }catch(_){ wallpaperIndex = Math.floor(Math.random()*wallpapers.length); }
+    applyWallpaper(wallpaperIndex);
+    const wallpaperBtn = document.getElementById("btnChangeWallpaper");
+    wallpaperBtn?.addEventListener("click", ()=>{
+      wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
+      applyWallpaper(wallpaperIndex);
+      const prev = wallpaperBtn.textContent;
+      wallpaperBtn.textContent = "Обои: "+(wallpaperIndex+1)+"/"+wallpapers.length;
+      setTimeout(()=>{ wallpaperBtn.textContent="Сменить обои"; }, 1200);
+    });
+    setInterval(()=>{
+      wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
+      applyWallpaper(wallpaperIndex);
+      console.log("[wallpaper] auto rotate 30min", wallpaperIndex);
+    }, 30*60*1000);
     if (accentSelect) {
       accentSelect.value = readAccentPreference();
       accentSelect.addEventListener("change", () => applyAccent(accentSelect.value, true));
