@@ -183,7 +183,34 @@
     _ollamaWarned: false,
   };
 
-  const clipCache = new Map();
+  // Задача 2: ленивая загрузка + кэш 10 минут
+const TAB_CACHE_TTL = 10 * 60 * 1000;
+const _tabLoaded = { weekly: false, artists: false, weeklyReleases: false };
+function getTabCache(key){
+  try {
+    const raw = localStorage.getItem(key);
+    if(!raw) return null;
+    const {ts, data} = JSON.parse(raw);
+    if(Date.now() - ts > TAB_CACHE_TTL){ try{ localStorage.removeItem(key);}catch(_){} return null; }
+    return data;
+  } catch(_){ return null; }
+}
+function setTabCache(key, data){
+  try{ localStorage.setItem(key, JSON.stringify({ts: Date.now(), data})); }catch(_){}
+}
+function showSkeleton(targetId, count=6, type="weekly"){
+  const host = document.getElementById(targetId);
+  if(!host) return;
+  if(type==="weekly"){
+    host.innerHTML = Array.from({length: count}).map(()=> `<article class="weekly-card skeleton"><div class="weekly-cover skeleton-box"></div><div class="weekly-card-info"><span class="skeleton-line" style="width:70%"></span><span class="skeleton-line short" style="width:45%"></span></div><div class="weekly-card-actions"><span class="skeleton-line" style="width:40%"></span></div></article>`).join("");
+  } else if(type==="artists"){
+    host.innerHTML = Array.from({length: count}).map(()=> `<li class="artist-row skeleton"><div class="weekly-cover skeleton-box" style="width:2rem;height:2rem;border-radius:50%"></div><div style="flex:1"><span class="skeleton-line" style="width:60%"></span><span class="skeleton-line short" style="width:35%"></span></div></li>`).join("");
+  } else if(type==="profile"){
+    host.innerHTML = `<div class="weekly-card skeleton"><div class="weekly-cover skeleton-box" style="height:200px"></div><div class="weekly-card-info"><span class="skeleton-line" style="width:50%"></span><span class="skeleton-line short" style="width:80%"></span></div></div>`;
+  }
+}
+
+const clipCache = new Map();
   const coverCache = new Map();
   const lyricsCache = new Map();
   const resolvingInFlight = new Set();
@@ -3770,16 +3797,35 @@
 
   async function loadWeeklyReleases(force) {
     const status = $("releaseStatus");
+    const cacheKey = "kadr-cache-weekly-releases";
     const names = new Set(state.tracks.map((track) => track.artist).filter(Boolean));
     if (!names.size) {
       renderWeeklyReleases({ tracks: [], albums: [], warnings: [] });
       if (status) status.textContent = "Выбери папку с музыкой";
       return;
     }
+    // Задача 2: кэш 10 минут для новинок
+    if(!force){
+      const cached = getTabCache(cacheKey);
+      if(cached && cached.namesSize===names.size){
+        renderWeeklyReleases(cached.data);
+        if(status) status.textContent = `Проверено ${cached.data.artists_checked||0} артистов · найдено ${(cached.data.tracks?.length||0)+(cached.data.albums?.length||0)} релизов (кэш)`;
+        // фоново обновить
+        (async()=>{
+          try{ await loadWeekly(false); const fresh=state.weeklyData; if(fresh){ setTabCache(cacheKey,{data:fresh, namesSize:names.size}); renderWeeklyReleases(fresh);} }catch(_){}
+        })();
+        return;
+      }
+    }
     if (status) status.textContent = `Проверяю ${names.size} артистов…`;
+    // скелетон если грузим новинки
+    const hostT = $("newTracksList");
+    if(hostT && !hostT.innerHTML.trim()) showSkeleton("newTracksList", 4, "weekly");
     try {
       await loadWeekly(force);
-      renderWeeklyReleases(state.weeklyData || { tracks: [], albums: [], warnings: [] });
+      const data = state.weeklyData || { tracks: [], albums: [], warnings: [] };
+      renderWeeklyReleases(data);
+      setTabCache(cacheKey, {data, namesSize:names.size});
     } catch (error) {
       if (status) status.textContent = `Каталог релизов сейчас недоступен: ${error.message}`;
     }
@@ -3795,15 +3841,41 @@
 
   async function loadArtistsPanel() {
     const status = $("artistStatus");
+    const cacheKey = "kadr-cache-artists";
     if (state.artistsLoaded) {
+      // показать кэш новинок в фоне
+      await loadWeeklyReleases(false);
+      return;
+    }
+    // Задача 2: показать кэш сразу если есть
+    const cached = getTabCache(cacheKey);
+    if(cached && cached.artists){
+      state.artists = cached.artists;
+      state.artistsLoaded = true;
+      renderArtistsList(state.artistFilter);
+      if(status) status.textContent = `${state.artists.length} артистов из твоей музыки (кэш)`;
+      // фоново обновить
+      (async()=>{
+        try{
+          const fresh = await api("/api/artists");
+          if(JSON.stringify(fresh.artists) !== JSON.stringify(cached.artists)){
+            state.artists = fresh.artists||[];
+            renderArtistsList(state.artistFilter);
+            if(status) status.textContent = `${state.artists.length} артистов из твоей музыки`;
+            setTabCache(cacheKey, {artists: fresh.artists, ts: Date.now()});
+          }
+        }catch(_){}
+      })();
       await loadWeeklyReleases(false);
       return;
     }
     if (status) status.textContent = "Подбираю похожих артистов…";
+    showSkeleton("artistsList", 8, "artists");
     try {
       const data = await api("/api/artists");
       state.artists = data.artists || [];
       state.artistsLoaded = true;
+      setTabCache(cacheKey, {artists: state.artists});
       renderArtistsList(state.artistFilter);
       if (status) status.textContent = data.ollama
         ? `${state.artists.length} артистов из твоей музыки`
@@ -4076,11 +4148,41 @@
     const status = $("weeklyStatus");
     const refresh = $("weeklyRefresh");
     const host = $("weeklyCards");
+    const cacheKey = "kadr-cache-weekly";
+    // Задача 2: при повторном открытии показывать кэш сразу, обновлять в фоне
+    if(!force){
+      const cached = getTabCache(cacheKey);
+      if(cached && !_tabLoaded.weekly){ // show cache immediately
+        state.weeklyData = cached;
+        renderWeeklyItems(cached);
+        if(status){ const count=(cached.tracks||[]).length+(cached.albums||[]).length; status.textContent = `${count} релизов · ${weeklyWindowLabel(cached)} · ${cached.source||"каталог"} (кэш)`; }
+        // обновляем в фоне без скелетона
+        _tabLoaded.weekly = true;
+        // background refresh
+        (async()=>{
+          try{
+            const followedArtists = [...state.followedArtists];
+            const query = new URLSearchParams();
+            followedArtists.forEach(a=> query.append("artist", a));
+            const qs = query.toString();
+            const fresh = await api(`/api/weekly${qs ? `?${qs}` : ""}`);
+            if(JSON.stringify(fresh) !== JSON.stringify(cached)){
+              state.weeklyData = fresh;
+              renderWeeklyItems(fresh);
+              if(status){ const c2=(fresh.tracks||[]).length+(fresh.albums||[]).length; status.textContent = `${c2} релизов · ${weeklyWindowLabel(fresh)} · ${fresh.source||"каталог"}`; }
+              setTabCache(cacheKey, fresh);
+            }
+          }catch(_){}
+        })();
+        if(refresh) refresh.disabled=false;
+        return;
+      }
+    }
     if (refresh) refresh.disabled = true;
     if (status) status.textContent = force ? "Обновляю подборку…" : "Загружаю подборку…";
-    // BUG5: skeleton while loading
-    if (host) {
-      host.innerHTML = Array.from({length: 6}).map(()=> `<article class="weekly-card skeleton"><div class="weekly-cover skeleton-box"></div><div class="weekly-card-info"><span class="skeleton-line" style="width:70%"></span><span class="skeleton-line short" style="width:45%"></span></div><div class="weekly-card-actions"><span class="skeleton-line" style="width:40%"></span></div></article>`).join("");
+    // скелетон только если нет кэша или force
+    if (host && (!getTabCache(cacheKey) || force)) {
+      showSkeleton("weeklyCards", 6, "weekly");
     }
     const followedArtists = [...state.followedArtists];
     const query = new URLSearchParams();
@@ -4094,6 +4196,8 @@
         })
         : await api(`/api/weekly${queryString ? `?${queryString}` : ""}`);
       state.weeklyData = data;
+      try{ setTabCache(cacheKey, data); }catch(_){}
+      _tabLoaded.weekly = true;
       const count = (data.tracks || []).length + (data.albums || []).length;
       const errors = data.warnings?.length || 0;
       const checkedArtists = Number(data.artists_checked) || 0;
@@ -4122,7 +4226,15 @@
     $("listeningStats").classList.add("hidden");
     $("weeklyPage").classList.remove("hidden");
     setWeeklyTab(state.weeklyTab);
-    loadWeekly(false);
+    // Задача 2: ленивая загрузка — только при первом открытии или если нет кэша
+    if(!_tabLoaded.weekly || !state.weeklyData){
+      loadWeekly(false);
+    } else {
+      // показать кэш сразу без запроса
+      renderWeeklyItems(state.weeklyData);
+      // обновить в фоне
+      loadWeekly(false);
+    }
   }
 
   $("weeklyBack")?.addEventListener("click", () => {
@@ -4382,11 +4494,30 @@
     $("listeningStats").classList.add("hidden");
     $("weeklyPage").classList.add("hidden");
     profileView.classList.remove("hidden");
+    const cacheKey = `kadr-cache-artist-${name.toLowerCase()}`;
+    const cachedProfile = getTabCache(cacheKey);
+    if(cachedProfile){
+      renderArtistProfile(cachedProfile);
+      $("profileStatus").textContent = `${cachedProfile.local_tracks?.length||0} треков в библиотеке (кэш)`;
+      // фоново обновляем
+      (async()=>{
+        try{
+          const fresh = await api(`/api/artist/${encodeURIComponent(name)}`);
+          if(JSON.stringify(fresh) !== JSON.stringify(cachedProfile)){
+            renderArtistProfile(fresh);
+            setTabCache(cacheKey, fresh);
+          }
+        }catch(_){}
+      })();
+      try { localStorage.setItem(lastArtistKey, name); } catch (_) {}
+      return;
+    }
     $("profileStatus").textContent = "Загружаю профиль…";
-    $("profileContent").innerHTML = "";
+    showSkeleton("profileContent", 1, "profile");
     try { localStorage.setItem(lastArtistKey, name); } catch (_) {}
     try {
       const profile = await api(`/api/artist/${encodeURIComponent(name)}`);
+      setTabCache(cacheKey, profile);
       renderArtistProfile(profile);
     } catch (error) {
       $("profileStatus").textContent = "Не удалось загрузить профиль";
