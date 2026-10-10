@@ -45,6 +45,83 @@ try:
 except OSError:
     log.exception("Could not configure weekly debug log at %s", DEBUG_LOG_PATH)
 
+def _svg_placeholder(artist: str) -> str:
+    """Задача 4: SVG заглушка с первой буквой на градиенте, data URI без внешних запросов."""
+    import urllib.parse
+    letter = (artist.strip()[:1] or "?").upper()
+    # escape for XML
+    letter_esc = letter.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ff6b9d"/><stop offset="100%" stop-color="#00d4ff"/></linearGradient></defs><rect width="600" height="600" rx="32" fill="url(#g)"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Inter, sans-serif" font-size="220" font-weight="700" fill="white">{letter_esc}</text></svg>'
+    return "data:image/svg+xml," + urllib.parse.quote(svg)
+
+async def _cover_via_itunes(client: httpx.AsyncClient, artist: str, title: str) -> str:
+    try:
+        resp = await client.get("https://itunes.apple.com/search", params={"term": f"{artist} {title}", "entity": "song", "limit": 1}, timeout=6.0)
+        resp.raise_for_status()
+        results = resp.json().get("results") or []
+        for item in results:
+            art = item.get("artworkUrl100")
+            if art:
+                # заменить 100x100 на 600x600
+                art = art.replace("100x100bb", "600x600bb").replace("100x100", "600x600")
+                if art.startswith("https://"):
+                    return art
+    except Exception:
+        pass
+    return ""
+
+async def _cover_via_musicbrainz(client: httpx.AsyncClient, artist: str, title: str) -> str:
+    try:
+        # MusicBrainz search recording then cover art
+        resp = await client.get("https://musicbrainz.org/ws/2/recording/", params={"query": f'artist:"{artist}" AND recording:"{title}"', "fmt": "json", "limit": "1"}, headers={"User-Agent": "kadr-player/1.0 ( cover fallback )"}, timeout=6.0)
+        resp.raise_for_status()
+        data = resp.json()
+        recordings = data.get("recordings") or []
+        for rec in recordings:
+            releases = rec.get("releases") or []
+            for rel in releases:
+                mbid = rel.get("id")
+                if not mbid:
+                    continue
+                # Cover Art Archive front
+                # try HEAD to verify exists, but just return URL format
+                url = f"https://coverartarchive.org/release/{mbid}/front-500"
+                # verify quickly
+                try:
+                    head = await client.head(url, timeout=4.0)
+                    if head.status_code == 200:
+                        return url
+                except Exception:
+                    # fallback to direct without check
+                    return url
+    except Exception:
+        pass
+    return ""
+
+async def _ensure_covers(client: httpx.AsyncClient, items: list[dict[str, Any]]) -> None:
+    """Задача 4: fallback Deezer -> iTunes (600) -> MusicBrainz -> SVG placeholder."""
+    for item in items:
+        cover = str(item.get("cover") or "").strip()
+        if cover and cover.startswith("https://"):
+            # уже есть Deezer, но если iTunes 100x100 -> upgrade уже выше, Deezer оставляет
+            continue
+        artist = str(item.get("artist") or "")
+        title = str(item.get("title") or "")
+        # iTunes fallback
+        itunes_cover = await _cover_via_itunes(client, artist, title)
+        if itunes_cover:
+            item["cover"] = itunes_cover
+            continue
+        # MusicBrainz fallback
+        mb_cover = await _cover_via_musicbrainz(client, artist, title)
+        if mb_cover:
+            item["cover"] = mb_cover
+            continue
+        # SVG заглушка data URI
+        item["cover"] = _svg_placeholder(artist)
+
+
+
 
 def _normalize(value: str) -> str:
     return re.sub(r"[^\w]+", " ", value.casefold()).strip()
@@ -463,6 +540,9 @@ async def get_weekly(
             if str(item.get("release_type") or "").casefold() == "single"
         ]
         albums = list(releases.get("albums", []))
+        # Задача 4: fallback обложек Deezer -> iTunes -> MusicBrainz -> SVG
+        await _ensure_covers(client, new_tracks)
+        await _ensure_covers(client, albums)
         all_candidates = new_tracks + albums
         embedding_scores: dict[tuple[str, str], float] = {}
         if ollama is not None:

@@ -4053,6 +4053,12 @@ const clipCache = new Map();
     );
   }
 
+  function weeklyPlaceholder(artist){
+    const letter = (String(artist||"?").trim().charAt(0)||"?").toUpperCase();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ff6b9d"/><stop offset="100%" stop-color="#00d4ff"/></linearGradient></defs><rect width="600" height="600" rx="32" fill="url(#g)"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Inter,sans-serif" font-size="220" font-weight="700" fill="white">${letter.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</text></svg>`;
+    return "data:image/svg+xml," + encodeURIComponent(svg);
+  }
+  try{ window.weeklyPlaceholder = weeklyPlaceholder; }catch(_){}
   function weeklyExternalUrl(value) {
     try {
       const url = new URL(value);
@@ -4066,6 +4072,7 @@ const clipCache = new Map();
   }
 
   function weeklyCoverUrl(value) {
+    if(typeof value==="string" && value.startsWith("data:image/svg+xml")) return value;
     try {
       const url = new URL(value);
       const host = url.hostname.toLowerCase();
@@ -4132,8 +4139,9 @@ const clipCache = new Map();
       }
       const inLib = state.tracks.some(t=> t.artist.toLowerCase()===String(item.artist).toLowerCase() && t.title.toLowerCase()===String(item.title).toLowerCase());
       const dlBtn2 = inLib ? "" : `<button class="btn ghost" type="button" data-download data-artist="${esc(item.artist)}" data-title="${esc(item.title)}" title="Скачать">⬇️</button>`;
+      const ph = weeklyPlaceholder(item.artist);
       return `<article class="weekly-card">` +
-        `${cover ? `<img class="weekly-cover" src="${esc(cover)}" alt="" loading="lazy">` : `<div class="weekly-cover" aria-hidden="true"></div>`}` +
+        `${cover ? `<img class="weekly-cover" src="${esc(cover)}" alt="" loading="lazy" data-artist="${esc(item.artist)}" onerror="this.onerror=null;try{this.src=window.weeklyPlaceholder(this.dataset.artist)}catch(e){this.src=\'data:image/svg+xml,\'}">` : `<img class="weekly-cover" src="${ph}" alt="" loading="lazy">`}` +
         `<div class="weekly-card-info"><span class="weekly-card-title" title="${esc(item.title)}">${esc(item.title)}</span>` +
         `<span class="weekly-card-meta">${esc(item.artist)} · ${esc(releaseDate)}</span></div>` +
         `<div class="weekly-card-actions">` +
