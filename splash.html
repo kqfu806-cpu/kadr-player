@@ -107,12 +107,12 @@
       return fetch(url, { signal: ctrl.signal }).finally(function(){ clearTimeout(id); });
     }
     function probeOllama() {
-      // non-blocking, timeout 3000ms, never blocks launch
-      fetchWithTimeout("http://127.0.0.1:11434/api/tags", 3000).then(function (r) {
+      // non-blocking, timeout 2000ms, never blocks launch — БАГ1
+      fetchWithTimeout("http://127.0.0.1:11434/api/tags", 2000).then(function (r) {
         if (r.ok) setOllamaStatus("Ollama: OK");
         else setOllamaStatus("Ollama: offline");
       }).catch(function () {
-        fetchWithTimeout("http://127.0.0.1:8000/api/health", 3000).then(function (r) { return r.json(); }).then(function (h) {
+        fetchWithTimeout("http://127.0.0.1:8000/api/health", 2000).then(function (r) { return r.json(); }).then(function (h) {
           var on = h && h.ollama && h.ollama.online;
           setOllamaStatus(on ? "Ollama: OK" : "Ollama: offline");
         }).catch(function () { setOllamaStatus("Ollama: offline"); });
@@ -126,9 +126,11 @@
       if (barI) { barI.style.width = "100%"; barI.style.animation = "none"; barI.style.transform = "none"; }
       if (bar) bar.style.opacity = "1";
       clearInterval(t);
+      console.log("[splash] progress 100%");
     }
-    (function ping() {
-      fetchWithTimeout("http://127.0.0.1:8000/api/health", 3000).then(function (r) {
+    function ping() {
+      console.log("[splash] ping http://127.0.0.1:8000/api/health timeout 2000");
+      fetchWithTimeout("http://127.0.0.1:8000/api/health", 2000).then(function (r) {
         if (r.ok) {
           setProgress100();
           document.getElementById("msg").textContent = "Готово";
@@ -136,11 +138,15 @@
             var on = h && h.ollama && h.ollama.online;
             setOllamaStatus(on ? "Ollama: OK" : "Ollama: offline");
           }).catch(function () {});
-          // always open main window even if ollama offline — progress 100%
+          // always open main window even if ollama offline — progress 100% — БАГ1
           setTimeout(function () { location.href = "http://127.0.0.1:8000/"; }, 250);
         } else setTimeout(ping, 400);
       }).catch(function () { setTimeout(ping, 400); });
-    })();
+    }
+    // БАГ1: ждать 3 сек перед первым ping (сервер стартует) — простая логика
+    setTimeout(ping, 300);
+    // также сразу пробуем ping (если сервер уже был запущен) — не ждём 3с
+    ping();
   </script>
 </body>
 </html>

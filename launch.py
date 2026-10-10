@@ -420,9 +420,12 @@ def _main_locked() -> None:
 
     from backend.tray import health_ok, _open_window, _notify
 
-    if health_ok():
+    # быстрый путь: сервер уже работает — сразу окно, без splash
+    if health_ok(timeout=2):
+        _desktop_log(f"=== LAUNCH === server already running at {url} — opening window immediately (progress 100%)")
         print("Server already running — opening window")
         _open_window()
+        _desktop_log("main window opened (already running)")
         if not debug:
             start_tray_process()
             try:
@@ -432,27 +435,42 @@ def _main_locked() -> None:
                 pass
         return
 
+    # === БАГ1 ФИКС: простая сплэш-логика БЕЗ Ollama в середине ===
     splash_proc = None
-    _desktop_log(f"launch app_mode={app_mode} debug={debug} — opening splash (progress 0%)")
+    _desktop_log("=== LAUNCH START ===")
+    _desktop_log(f"STEP 1: opening splash app_mode={app_mode} debug={debug} progress 0%")
     if app_mode and not debug:
         splash_proc = _open_splash()
-        _desktop_log("splash opened, progress 30%")
-
-    ollama_ok = ensure_ollama()
-    if ollama_ok:
-        _report_ollama_models()
-        _desktop_log("ollama OK — progress 100% (non-blocking)")
+        pid = splash_proc.pid if splash_proc else None
+        _desktop_log(f"STEP 1: splash opened pid={pid} progress 30%")
     else:
-        _server_log("Ollama not running — clips will use heuristic (low accuracy)")
-        _desktop_log("ollama offline — continuing, progress 100% (non-blocking, warn splash)")
-        if splash_proc is None and app_mode and not debug:
-            splash_proc = _open_splash(warn=True)
-            _desktop_log("warn splash opened, progress 30% -> 100%")
+        _desktop_log("STEP 1: skip splash (debug mode)")
+
+    _desktop_log("STEP 2: sleep 3 sec (splash visible) progress 50% — NO Ollama check here")
+    time.sleep(3)
+    _desktop_log("STEP 2: sleep done — progress 50%")
+
+    # Ollama — в фоне, НЕ блокирует splash→health→window
+    def _bg_ollama():
+        try:
+            _desktop_log("BG: ollama check start (non-blocking)")
+            ok = ensure_ollama()
+            _desktop_log(f"BG: ollama check done ok={ok}")
+            if ok:
+                _report_ollama_models()
+        except Exception as e:
+            _desktop_log(f"BG: ollama exception {e}")
+
+    import threading
+
+    threading.Thread(target=_bg_ollama, daemon=True).start()
+    _desktop_log("STEP 2.5: BG Ollama thread started (non-blocking)")
 
     log_dir = ROOT / "cache"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "server.log"
     log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+    _desktop_log(f"STEP 3: starting uvicorn at {url} log={log_path}")
 
     cmd = [py, "-m", "uvicorn", "backend.main:app", "--host", HOST, "--port", str(PORT)]
     kwargs: dict = {"cwd": str(ROOT)}
@@ -464,57 +482,89 @@ def _main_locked() -> None:
         kwargs["stdout"] = None if debug else log_f
         kwargs["stderr"] = None if debug else subprocess.STDOUT
 
-    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        proc = subprocess.Popen(cmd, **kwargs)
+        _desktop_log(f"STEP 3: server Popen pid={proc.pid} progress 60%")
+    except Exception as e:
+        _desktop_log(f"STEP 3: Popen failed {e}")
+        if splash_proc:
+            try:
+                splash_proc.terminate()
+            except Exception:
+                pass
+        die(f"failed to start server: {e}")
 
+    _desktop_log("STEP 4: polling http://127.0.0.1:8000/api/health timeout=2 (max 30s)")
     ready = False
-    for _ in range(60):
+    for attempt in range(60):
         if proc.poll() is not None:
-            _desktop_log(f"server process died early code={proc.poll()}")
+            _desktop_log(f"STEP 4: server died code={proc.poll()} attempt={attempt+1}")
             break
-        if health_ok(0.8):
-            ready = True
-            _desktop_log("server health OK — progress 100%")
-            break
+        try:
+            if health_ok(timeout=2):
+                ready = True
+                _desktop_log(f"STEP 4: health OK attempt={attempt+1} — progress 100%")
+                break
+            else:
+                _desktop_log(f"STEP 4: health not ready attempt={attempt+1}")
+        except Exception as e:
+            _desktop_log(f"STEP 4: health exception attempt={attempt+1} err={e}")
         time.sleep(0.5)
 
-    # always close splash and open main window even if ollama offline — progress 100%
+    _desktop_log(f"STEP 5: closing splash ready={ready} progress 100%")
     if splash_proc:
         try:
             splash_proc.terminate()
-            _desktop_log("splash terminated, progress 100%")
-        except Exception:
-            pass
+            _desktop_log("STEP 5: splash terminated")
+        except Exception as e:
+            _desktop_log(f"STEP 5: splash terminate err {e}")
+        # дать Edge закрыться
+        time.sleep(0.4)
 
     if not ready:
-        _desktop_log("server not ready in 30s — opening error splash")
+        _desktop_log("STEP 5: server not ready in 30s — error splash")
         if app_mode:
             _open_splash(error=True)
         die("server did not become ready in 30s — see cache/server.log")
 
-    _desktop_log("opening main window (always, even if ollama offline) — progress 100%")
+    _desktop_log("STEP 6: opening main window (always, even if Ollama offline) progress 100%")
     if app_mode:
-        _open_window()
-        _desktop_log("main window opened — progress 100%")
+        try:
+            _open_window()
+            _desktop_log("STEP 6: _open_window() called — main window should be visible")
+        except Exception as e:
+            _desktop_log(f"STEP 6: _open_window exception {e}")
+            try:
+                webbrowser.open(url)
+                _desktop_log("STEP 6: fallback webbrowser.open")
+            except Exception as e2:
+                _desktop_log(f"STEP 6: fallback failed {e2}")
         if not debug:
             _notify("Курымдык", "Курымдык свёрнут в трей. ПКМ по иконке → Выход")
+            _desktop_log("STEP 6: tray notify sent")
     else:
         try:
             webbrowser.open(url)
-        except Exception:
-            pass
+            _desktop_log("STEP 6: browser opened (debug)")
+        except Exception as e:
+            _desktop_log(f"STEP 6: browser open err {e}")
 
     def _stop() -> None:
         try:
             proc.terminate()
+            _desktop_log("server terminated via _stop")
         except Exception:
             pass
 
     if not debug:
         start_tray_process()
+        _desktop_log("tray process started")
 
+    _desktop_log("STEP 7: waiting for server proc.wait()")
     try:
         raise SystemExit(proc.wait())
     except KeyboardInterrupt:
+        _desktop_log("KeyboardInterrupt — stopping server")
         _stop()
         raise SystemExit(0)
 
