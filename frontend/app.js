@@ -669,8 +669,9 @@ const clipCache = new Map();
     _wrapPostMessage();
     await new Promise((resolve) => {
       try {
+        // БАГ6: youtube-nocookie.com НЕ поддерживает postMessage как www.youtube.com — возвращаем host www.youtube.com
         state.yt = new YT.Player("ytPlayerInner", {
-          host: 'https://www.youtube-nocookie.com',
+          host: 'https://www.youtube.com',
           videoId,
           playerVars: {
             autoplay: 1,
@@ -678,7 +679,8 @@ const clipCache = new Map();
             modestbranding: 1,
             iv_load_policy: 3,
             playsinline: 1,
-            origin: window.location.origin || 'http://127.0.0.1:8000',
+            enablejsapi: 1,
+            origin: 'http://127.0.0.1:8000',
             fs: 0,
             cc_load_policy: 0,
             cc_lang_pref: "",
@@ -712,10 +714,31 @@ const clipCache = new Map();
             }
             if (e.data === YT.PlayerState.PAUSED) setPlaying(false);
           },
-          onError: () => {
+          onError: (e) => {
             showClipLoader(false);
-            toast("Клип не встроился — играю аудиофайл");
-            fallbackAudio();
+            console.warn("[youtube] onError", e && e.data, "videoId", videoId);
+            // БАГ6: postMessage ошибка от youtube-nocookie не критична — если клип играет, тост не показываем
+            try {
+              setTimeout(()=>{
+                try{
+                  if(state.yt && typeof state.yt.getPlayerState==='function'){
+                    const st = state.yt.getPlayerState();
+                    if(st===1 || st===3){ // PLAYING 1, BUFFERING 3
+                      console.log("[youtube] postMessage error suppressed — clip is playing, no toast");
+                      return;
+                    }
+                  }
+                  toast("Клип не встроился — играю аудиофайл");
+                  fallbackAudio();
+                }catch(_){
+                  toast("Клип не встроился — играю аудиофайл");
+                  fallbackAudio();
+                }
+              }, 1000);
+            } catch(_){
+              toast("Клип не встроился — играю аудиофайл");
+              fallbackAudio();
+            }
           },
         },
       });
