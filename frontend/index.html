@@ -513,11 +513,28 @@
               <button class="btn ghost" data-loop="A:32" type="button">Loop 32</button>
             </div>
           </div>
-          <label class="deck-pitch">Pitch ±10% <input type="range" id="pitchA" min="-10" max="10" value="0" step="0.5"> <output id="pitchAValue">0%</output></label>
-          <div class="deck-eq" role="group" aria-label="EQ">
-            <label>Low <input type="range" data-eq="A:low" min="-12" max="12" value="0" step="1"></label>
-            <label>Mid <input type="range" data-eq="A:mid" min="-12" max="12" value="0" step="1"></label>
-            <label>High <input type="range" data-eq="A:high" min="-12" max="12" value="0" step="1"></label>
+          <div class="deck-knobs" role="group" aria-label="Pitch и EQ Deck A">
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-param="pitchA" data-value="0" tabindex="0" role="slider" aria-valuemin="-10" aria-valuemax="10" aria-valuenow="0" aria-label="Pitch A"><div class="knob-pointer"></div></div>
+              <label>Pitch</label><span class="dj-knob-value" id="pitchAKnobValue">0%</span>
+              <input type="range" id="pitchA" min="-10" max="10" value="0" step="0.5" hidden>
+              <output id="pitchAValue" hidden>0%</output>
+            </div>
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-knob-eq="A:low" data-value="0" tabindex="0" role="slider" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0" aria-label="Low A"><div class="knob-pointer"></div></div>
+              <label>Low</label><span class="dj-knob-value" data-eq-knob-value="A:low">0 dB</span>
+              <input type="range" data-eq="A:low" min="-12" max="12" value="0" step="1" hidden>
+            </div>
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-knob-eq="A:mid" data-value="0" tabindex="0" role="slider" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0" aria-label="Mid A"><div class="knob-pointer"></div></div>
+              <label>Mid</label><span class="dj-knob-value" data-eq-knob-value="A:mid">0 dB</span>
+              <input type="range" data-eq="A:mid" min="-12" max="12" value="0" step="1" hidden>
+            </div>
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-knob-eq="A:high" data-value="0" tabindex="0" role="slider" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0" aria-label="High A"><div class="knob-pointer"></div></div>
+              <label>High</label><span class="dj-knob-value" data-eq-knob-value="A:high">0 dB</span>
+              <input type="range" data-eq="A:high" min="-12" max="12" value="0" step="1" hidden>
+            </div>
           </div>
           <audio id="audioA" preload="metadata" crossorigin="anonymous"></audio>
         </section>
@@ -540,11 +557,28 @@
               <button class="btn ghost" data-loop="B:32" type="button">Loop 32</button>
             </div>
           </div>
-          <label class="deck-pitch">Pitch ±10% <input type="range" id="pitchB" min="-10" max="10" value="0" step="0.5"> <output id="pitchBValue">0%</output></label>
-          <div class="deck-eq" role="group" aria-label="EQ">
-            <label>Low <input type="range" data-eq="B:low" min="-12" max="12" value="0" step="1"></label>
-            <label>Mid <input type="range" data-eq="B:mid" min="-12" max="12" value="0" step="1"></label>
-            <label>High <input type="range" data-eq="B:high" min="-12" max="12" value="0" step="1"></label>
+          <div class="deck-knobs" role="group" aria-label="Pitch и EQ Deck B">
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-param="pitchB" data-value="0" tabindex="0" role="slider" aria-valuemin="-10" aria-valuemax="10" aria-valuenow="0" aria-label="Pitch B"><div class="knob-pointer"></div></div>
+              <label>Pitch</label><span class="dj-knob-value" id="pitchBKnobValue">0%</span>
+              <input type="range" id="pitchB" min="-10" max="10" value="0" step="0.5" hidden>
+              <output id="pitchBValue" hidden>0%</output>
+            </div>
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-knob-eq="B:low" data-value="0" tabindex="0" role="slider" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0" aria-label="Low B"><div class="knob-pointer"></div></div>
+              <label>Low</label><span class="dj-knob-value" data-eq-knob-value="B:low">0 dB</span>
+              <input type="range" data-eq="B:low" min="-12" max="12" value="0" step="1" hidden>
+            </div>
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-knob-eq="B:mid" data-value="0" tabindex="0" role="slider" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0" aria-label="Mid B"><div class="knob-pointer"></div></div>
+              <label>Mid</label><span class="dj-knob-value" data-eq-knob-value="B:mid">0 dB</span>
+              <input type="range" data-eq="B:mid" min="-12" max="12" value="0" step="1" hidden>
+            </div>
+            <div class="dj-knob-wrap">
+              <div class="dj-knob" data-knob-eq="B:high" data-value="0" tabindex="0" role="slider" aria-valuemin="-12" aria-valuemax="12" aria-valuenow="0" aria-label="High B"><div class="knob-pointer"></div></div>
+              <label>High</label><span class="dj-knob-value" data-eq-knob-value="B:high">0 dB</span>
+              <input type="range" data-eq="B:high" min="-12" max="12" value="0" step="1" hidden>
+            </div>
           </div>
           <audio id="audioB" preload="metadata" crossorigin="anonymous"></audio>
         </section>

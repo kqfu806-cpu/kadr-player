@@ -2289,17 +2289,124 @@ const clipCache = new Map();
       });
     });
 
-    // Pitch ±10%
+    // Pitch ±10% — sync с крутилками БАГ4
     $("pitchA")?.addEventListener("input", e=>{
       const v = Number(e.target.value);
       $("pitchAValue").textContent = (v>0?"+":"")+v+"%";
+      const k = document.getElementById("pitchAKnobValue");
+      if(k) k.textContent = (v>0?"+":"")+v+"%";
       audioA.playbackRate = 1 + v/100;
     });
     $("pitchB")?.addEventListener("input", e=>{
       const v = Number(e.target.value);
       $("pitchBValue").textContent = (v>0?"+":"")+v+"%";
+      const k = document.getElementById("pitchBKnobValue");
+      if(k) k.textContent = (v>0?"+":"")+v+"%";
       audioB.playbackRate = 1 + v/100;
     });
+
+    // БАГ4: DJ крутилки 60x60 — mousedown/mousemove вращение transform rotate(Ndeg)
+    function setupKnobs(){
+      const knobs = document.querySelectorAll('.dj-knob');
+      knobs.forEach(knob=>{
+        const param = knob.dataset.param;
+        const eqKey = knob.dataset.knobEq;
+        let input = null;
+        let min=0,max=100,step=1;
+        if(param){
+          input = document.getElementById(param);
+          if(input){ min=Number(input.min); max=Number(input.max); step=Number(input.step)||1; }
+        } else if(eqKey){
+          input = document.querySelector(`[data-eq="${eqKey}"]`);
+          if(input){ min=Number(input.min); max=Number(input.max); step=Number(input.step)||1; }
+        }
+        if(!input) return;
+        function valueToAngle(v){
+          const t = (v - min)/(max - min);
+          return -135 + t*270;
+        }
+        function syncFromInput(){
+          const v = Number(input.value);
+          knob.dataset.value = String(v);
+          knob.style.transform = `rotate(${valueToAngle(v)}deg)`;
+          knob.setAttribute('aria-valuenow', String(v));
+          if(param){
+            const out = document.getElementById(param+'Value');
+            const knobOut = document.getElementById(param+'KnobValue');
+            const txt = (v>0?"+":"")+v+"%";
+            if(out) out.textContent = txt;
+            if(knobOut) knobOut.textContent = txt;
+          } else if(eqKey){
+            const valEl = document.querySelector(`[data-eq-knob-value="${eqKey}"]`);
+            if(valEl) valEl.textContent = (v>0?"+":"")+v+" dB";
+            // also update tooltip aria
+            knob.title = (v>0?"+":"")+v+" dB";
+          }
+        }
+        syncFromInput();
+        input.addEventListener('input', syncFromInput);
+        let startY=0,startVal=0,dragging=false;
+        knob.addEventListener('mousedown', e=>{
+          e.preventDefault();
+          dragging=true; startY=e.clientY; startVal=Number(input.value);
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        });
+        knob.addEventListener('touchstart', e=>{
+          const t=e.touches[0];
+          dragging=true; startY=t.clientY; startVal=Number(input.value);
+          document.addEventListener('touchmove', onTouchMove,{passive:false});
+          document.addEventListener('touchend', onTouchEnd);
+        },{passive:false});
+        function onMove(e){
+          if(!dragging) return;
+          const delta = startY - e.clientY;
+          const range = max - min;
+          const sensitivity = range / 200;
+          let v = startVal + delta * sensitivity;
+          v = Math.round(v/step)*step;
+          v = Math.min(max, Math.max(min, v));
+          input.value = String(v);
+          input.dispatchEvent(new Event('input', {bubbles:true}));
+          syncFromInput();
+        }
+        function onUp(){
+          dragging=false;
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        }
+        function onTouchMove(e){
+          if(!dragging) return;
+          e.preventDefault();
+          const t=e.touches[0];
+          const delta = startY - t.clientY;
+          const range = max - min;
+          const sensitivity = range / 200;
+          let v = startVal + delta * sensitivity;
+          v = Math.round(v/step)*step;
+          v = Math.min(max, Math.max(min, v));
+          input.value = String(v);
+          input.dispatchEvent(new Event('input', {bubbles:true}));
+          syncFromInput();
+        }
+        function onTouchEnd(){
+          dragging=false;
+          document.removeEventListener('touchmove', onTouchMove);
+          document.removeEventListener('touchend', onTouchEnd);
+        }
+        knob.addEventListener('keydown', e=>{
+          let v=Number(input.value);
+          if(e.key==='ArrowUp' || e.key==='ArrowRight'){ v+=step; e.preventDefault(); }
+          else if(e.key==='ArrowDown' || e.key==='ArrowLeft'){ v-=step; e.preventDefault(); }
+          else return;
+          v=Math.min(max, Math.max(min, Math.round(v/step)*step));
+          input.value=String(v);
+          input.dispatchEvent(new Event('input', {bubbles:true}));
+          syncFromInput();
+        });
+      });
+    }
+    setupKnobs();
 
     function openDJ(){ djPanel.classList.remove("hidden"); }
     function closeDJ(){ djPanel.classList.add("hidden"); }
