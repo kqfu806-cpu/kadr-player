@@ -1,3 +1,4 @@
+/* CSP audit: no eval/new Function/setTimeout(string) — anime theme safe */
 /* Курымдык — клиент плеера. Чистый JS, без сборки. */
 (() => {
   "use strict";

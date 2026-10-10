@@ -1,3 +1,4 @@
+/* CSP: no eval */
 /* Оболочка офлайн. Аудио/API не кэшируем. */
 const CACHE = "kadr-shell-v17";
 const SHELL = [
