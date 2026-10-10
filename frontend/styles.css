@@ -2408,3 +2408,87 @@ html[data-theme="anime"] .ambient { z-index: 0; }
 html[data-theme="anime"] body::before { z-index: 1; }
 #app { z-index: 2; }
 body::after { z-index: 90; }
+
+ /* TASK4 ui-ux-pro-max (https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) — anime: glassmorphism + neon glows + soft shadows + rounded — Inter keep */
+html[data-theme="anime"] {
+  /* soft layered shadows token */
+  --anime-shadow-sm: 0 2px 12px rgba(0,0,0,0.28), 0 0 12px rgba(255,107,157,0.08);
+  --anime-shadow-md: 0 8px 32px rgba(0,0,0,0.48), 0 0 0 1px rgba(255,255,255,0.06), 0 0 28px rgba(157,124,255,0.14);
+  --anime-shadow-lg: 0 16px 48px rgba(0,0,0,0.55), 0 0 32px rgba(255,107,157,0.12), 0 0 48px rgba(0,212,255,0.10);
+}
+html[data-theme="anime"] .glass {
+  border-radius: 1.2rem !important;
+  background: rgba(255,255,255,0.06) !important;
+  backdrop-filter: blur(24px) saturate(145%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(145%) !important;
+  border: 1px solid rgba(255,255,255,0.13) !important;
+  box-shadow: var(--anime-shadow-md), inset 0 1px 0 rgba(255,255,255,0.14) !important;
+}
+html[data-theme="anime"] .glass:hover {
+  box-shadow: var(--anime-shadow-lg), inset 0 1px 0 rgba(255,255,255,0.18) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+}
+ /* cards / slots / panels — rounded 16-20 + soft shadow + neon rim */
+html[data-theme="anime"] .slot,
+html[data-theme="anime"] .panel,
+html[data-theme="anime"] .release-card,
+html[data-theme="anime"] .similar-item {
+  border-radius: 1.1rem !important;
+  box-shadow: var(--anime-shadow-sm) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
+}
+html[data-theme="anime"] .slot:hover,
+html[data-theme="anime"] .release-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 36px rgba(0,0,0,0.52), 0 0 20px rgba(255,107,157,0.18), 0 0 28px rgba(157,124,255,0.16) !important;
+  border-color: rgba(255,107,157,0.22) !important;
+}
+ /* primary button — neon gradient + glow, rounded pill */
+html[data-theme="anime"] .btn.primary,
+html[data-theme="anime"] .queue-btn.primary {
+  background: linear-gradient(135deg, #ff6b9d 0%, #c084fc 48%, #00d4ff 100%) !important;
+  border: 1px solid rgba(255,255,255,0.22) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 4px 24px rgba(255,107,157,0.38), 0 0 18px rgba(157,124,255,0.28), inset 0 1px 0 rgba(255,255,255,0.22) !important;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.35);
+}
+html[data-theme="anime"] .btn.primary:hover {
+  box-shadow: 0 6px 32px rgba(255,107,157,0.52), 0 0 26px rgba(157,124,255,0.36), 0 0 20px rgba(0,212,255,0.22), inset 0 1px 0 rgba(255,255,255,0.28) !important;
+  transform: translateY(-1px);
+  filter: saturate(1.08);
+}
+html[data-theme="anime"] .btn.primary:active { transform: translateY(0) scale(0.99); }
+ /* ghost / secondary — glass + subtle neon rim */
+html[data-theme="anime"] .btn.ghost,
+html[data-theme="anime"] .btn.secondary,
+html[data-theme="anime"] .chip,
+html[data-theme="anime"] .nav-pill {
+  border-radius: 999px !important;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  backdrop-filter: blur(14px) saturate(130%);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08) !important;
+}
+html[data-theme="anime"] .btn.ghost:hover,
+html[data-theme="anime"] .chip:hover { border-color: rgba(255,107,157,0.28) !important; box-shadow: 0 4px 18px rgba(0,0,0,0.38), 0 0 14px rgba(255,107,157,0.16) !important; }
+ /* title neon subtle glow — not harsh, per uupm soft shadows */
+html[data-theme="anime"] .title,
+html[data-theme="anime"] .hero-title {
+  text-shadow: 0 2px 20px rgba(255,107,157,0.28), 0 0 30px rgba(157,124,255,0.18);
+}
+ /* progress / slider — neon glow */
+html[data-theme="anime"] .progress-fill,
+html[data-theme="anime"] .range::-webkit-slider-thumb {
+  box-shadow: 0 0 10px rgba(255,107,157,0.55), 0 0 20px rgba(157,124,255,0.35) !important;
+}
+ /* vinyl / cover — soft layered shadow + rounded 18px */
+html[data-theme="anime"] .vinyl,
+html[data-theme="anime"] .cover,
+html[data-theme="anime"] .release-cover {
+  border-radius: 1rem !important;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55), 0 0 22px rgba(157,124,255,0.18), 0 0 0 1px rgba(255,255,255,0.08) !important;
+}
+ /* keep Inter — per spec do not replace font */
+html[data-theme="anime"] body, html[data-theme="anime"] { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif !important; }
+
