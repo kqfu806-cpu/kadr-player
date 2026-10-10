@@ -648,23 +648,38 @@ const clipCache = new Map();
     div.id = "ytPlayerInner";
     host.appendChild(div);
 
+    // БАГ2: обертка postMessage чтобы CSP/origin ошибка не ломала код
+    const _wrapPostMessage = () => {
+      try {
+        if (!window._postMessageWrapped) {
+          const orig = window.postMessage.bind(window);
+          window.postMessage = function(...args){
+            try { return orig(...args); } catch(e){ console.warn("postMessage suppressed", e.message); return; }
+          };
+          window._postMessageWrapped = true;
+        }
+      } catch(_){}
+    };
+    _wrapPostMessage();
     await new Promise((resolve) => {
-      state.yt = new YT.Player("ytPlayerInner", {
-        videoId,
-        playerVars: {
-          autoplay: 1,
-          rel: 0,
-          modestbranding: 1,
-          iv_load_policy: 3,
-          playsinline: 1,
-          origin: location.origin,
-          fs: 0,
-          cc_load_policy: 0,
-          cc_lang_pref: "",
-          hl: "ru",
-          disablekb: 0,
-          showinfo: 0,
-        },
+      try {
+        state.yt = new YT.Player("ytPlayerInner", {
+          host: 'https://www.youtube-nocookie.com',
+          videoId,
+          playerVars: {
+            autoplay: 1,
+            rel: 0,
+            modestbranding: 1,
+            iv_load_policy: 3,
+            playsinline: 1,
+            origin: window.location.origin || 'http://127.0.0.1:8000',
+            fs: 0,
+            cc_load_policy: 0,
+            cc_lang_pref: "",
+            hl: "ru",
+            disablekb: 0,
+            showinfo: 0,
+          },
         events: {
           onReady: (e) => {
             state.ytReady = true;
@@ -699,6 +714,10 @@ const clipCache = new Map();
         },
       });
       setTimeout(resolve, 4000);
+      } catch(e){
+        console.warn("YouTube player create failed", e);
+        try{ resolve(false); }catch(_){}
+      }
     });
     state.mode = "youtube";
     state.currentVideoId = videoId;
