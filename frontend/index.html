@@ -7,14 +7,22 @@
   <script>
     (function () {
       try {
-        var preset = localStorage.getItem("kadr-theme-preset") || localStorage.getItem("kadr-theme-mode") || localStorage.getItem("kadr-theme") || "dark";
+        var stored = localStorage.getItem("kadr-theme-preset") || localStorage.getItem("kadr-theme-mode") || localStorage.getItem("kadr-theme");
+        if (!stored) {
+          try { localStorage.setItem("kadr-theme-preset", "anime"); } catch(e){}
+          stored = "anime";
+        }
+        var preset = stored || "anime";
         var hour = new Date().getHours();
         var theme = preset === "auto" ? (hour >= 7 && hour < 19 ? "light" : "dark") : preset;
         // keep original preset values: cyberpunk #0a0e27, samurai #1a1410, dragon #1a0f0f, anime #0f0a1a etc
-        if (["dark","light","cyberpunk","samurai","dragon","anime"].indexOf(theme) === -1) theme = theme === "light" ? "light" : "dark";
+        if (["dark","light","cyberpunk","samurai","dragon","anime"].indexOf(theme) === -1) theme = "anime";
         document.documentElement.setAttribute("data-theme", theme);
+        // also apply to body when available
+        if (document.body) document.body.setAttribute("data-theme", theme);
+        else document.addEventListener("DOMContentLoaded", function(){ try{document.body.setAttribute("data-theme", theme);}catch(e){} });
       } catch (e) {
-        document.documentElement.setAttribute("data-theme", "dark");
+        document.documentElement.setAttribute("data-theme", "anime");
       }
     })();
   </script>
@@ -86,9 +94,11 @@
       <section class="theme-settings hidden glass" id="themeSettings" role="dialog" aria-label="Настройки оформления">
         <label for="themePreference">Фон
           <select id="themePreference">
-            <option value="dark">Тёмный</option>
-            <option value="light">Светлый</option>
-            <option value="auto">Автоматически</option>
+            <option value="dark">Тёмная</option>
+            <option value="light">Светлая</option>
+            <option value="anime">Anime</option>
+            <option value="cyberpunk">Cyberpunk</option>
+            <option value="auto">Auto</option>
           </select>
         </label>
         <label for="accentChoice">Акцентный цвет

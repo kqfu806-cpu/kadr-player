@@ -3424,6 +3424,7 @@
   function applyTheme(t) {
     const theme = t === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", theme);
+    try { document.body && document.body.setAttribute("data-theme", theme); } catch(_){}
     if (!customAccentColor) {
       for (const property of ["--accent", "--accent-1", "--accent-2", "--accent-3"]) {
         document.documentElement.style.removeProperty(property);
@@ -3471,12 +3472,17 @@
     const opacityValue = $("interfaceOpacityValue");
     const presetKey = "kadr-theme-preset";
     const presets = ["dark","light","anime","cyberpunk","samurai","dragon","auto"];
-    let themeMode = "dark";
+    let themeMode = "anime";
     try {
       const savedPreset = localStorage.getItem(presetKey);
       const saved = savedPreset || localStorage.getItem(themeModeStorageKey) || localStorage.getItem("kadr-theme");
       if (presets.includes(saved)) themeMode = saved;
       else if (["dark", "light", "auto"].includes(saved)) themeMode = saved;
+      else {
+        // Задача 1: по умолчанию anime при первом запуске
+        try { localStorage.setItem(presetKey, "anime"); } catch(_){}
+        themeMode = "anime";
+      }
     } catch (_) {}
     const themeForMode = (mode) => mode === "auto"
       ? (new Date().getHours() >= 7 && new Date().getHours() < 19 ? "light" : "dark")
@@ -3487,8 +3493,9 @@
       themeMode = preset;
       let effective = preset;
       if(preset==="auto") effective = themeForMode("auto");
-      // map preset to data-theme value
+      // map preset to data-theme value — apply to html and body
       document.documentElement.setAttribute("data-theme", effective);
+      try { document.body && document.body.setAttribute("data-theme", effective); } catch(_){}
       // store
       if(persist){ try{ localStorage.setItem(presetKey, preset); localStorage.setItem(themeModeStorageKey, preset); }catch(_){} }
       // update UI highlights
