@@ -50,9 +50,9 @@ class AudioFetcher:
     def fetch(self, url: str, output_path: str | Path) -> bool:
         """Low-level fetch: tools/audiodl.exe -x --audio-format opus --audio-quality 0 -o "{output_path}.%(ext)s" "{url}" """
         if not self.binary_path.is_file():
-            # BUG2: понятная ошибка
-            msg = "Бинарник не найден. Положите audiodl.exe в папку tools/"
-            self.log.error("%s missing: %s url=%s", msg, self.binary_path, url)
+            msg = "audiodl.exe не найден в tools/"
+            self.log.error("binary missing path=%s exists=%s url=%s", self.binary_path, self.binary_path.is_file(), url)
+            self.log.info("binary check path=%s full_path=%s command=%s", self.binary_path, Path(__file__).parent.parent / "tools" / "audiodl.exe", [str(self.binary_path), "-x", "--audio-format", "opus"])
             return False
 
         output_path = Path(output_path)
@@ -91,13 +91,14 @@ class AudioFetcher:
             return False
 
         if result.returncode != 0:
-            # BUG2: логировать полный ответ yt-dlp
             self.log.error(
-                "Audio downloader exited with code %s for %s: stderr=%s stdout=%s",
+                "Audio downloader exited code=%s path=%s command=%s url=%s stderr=%s stdout=%s",
                 result.returncode,
+                self.binary_path,
+                command,
                 url,
-                result.stderr.strip()[:1000],
-                result.stdout.strip()[:1000],
+                result.stderr.strip()[:1200],
+                result.stdout.strip()[:1200],
             )
             return False
 
@@ -152,10 +153,13 @@ class AudioFetcher:
         self.log.info("fetch_with_tags start url=%s artist=%s title=%s output=%s", url, artist, title, output_path)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Задача 3: полный путь Path(__file__).parent.parent / "tools" / "audiodl.exe"
+        expected = Path(__file__).parent.parent / "tools" / "audiodl.exe"
+        self.log.info("check binary path=%s expected=%s exists=%s", self.binary_path, expected, self.binary_path.is_file())
         if not self.binary_path.is_file():
-            msg = "Бинарник не найден. Положите audiodl.exe в папку tools/"
-            self.log.error("%s %s", msg, url)
-            return {"status": "error", "detail": msg}
+            msg = "audiodl.exe не найден в tools/"
+            self.log.error("binary missing path=%s command=%s url=%s", self.binary_path, [str(self.binary_path), "-x", "--audio-format", "opus"], url)
+            return {"status": "error", "message": msg, "detail": msg}
         ok = self.fetch(url, output_path)
         if not ok:
             # BUG2: include full yt-dlp log, already logged
