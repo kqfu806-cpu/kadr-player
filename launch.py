@@ -446,25 +446,9 @@ def _main_locked() -> None:
     else:
         _desktop_log("STEP 1: skip splash (debug mode)")
 
-    _desktop_log("STEP 2: sleep 3 sec (splash visible) progress 50% — NO Ollama check here")
+    _desktop_log("STEP 2: sleep 3 sec (splash visible) progress 50% — NO Ollama check here (БАГ1 spec)")
     time.sleep(3)
-    _desktop_log("STEP 2: sleep done — progress 50%")
-
-    # Ollama — в фоне, НЕ блокирует splash→health→window
-    def _bg_ollama():
-        try:
-            _desktop_log("BG: ollama check start (non-blocking)")
-            ok = ensure_ollama()
-            _desktop_log(f"BG: ollama check done ok={ok}")
-            if ok:
-                _report_ollama_models()
-        except Exception as e:
-            _desktop_log(f"BG: ollama exception {e}")
-
-    import threading
-
-    threading.Thread(target=_bg_ollama, daemon=True).start()
-    _desktop_log("STEP 2.5: BG Ollama thread started (non-blocking)")
+    _desktop_log("STEP 2: sleep done — progress 50% — proceeding to health check БЕЗ Ollama")
 
     log_dir = ROOT / "cache"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -548,6 +532,20 @@ def _main_locked() -> None:
             _desktop_log("STEP 6: browser opened (debug)")
         except Exception as e:
             _desktop_log(f"STEP 6: browser open err {e}")
+
+    # БАГ1: Ollama проверка ТОЛЬКО после открытия окна, в фоне — не в середине splash→health→window
+    def _bg_ollama_after():
+        try:
+            _desktop_log("BG-AFTER: ollama check start (non-blocking, after window)")
+            ok = ensure_ollama()
+            _desktop_log(f"BG-AFTER: ollama check done ok={ok}")
+            if ok:
+                _report_ollama_models()
+        except Exception as e:
+            _desktop_log(f"BG-AFTER: ollama exception {e}")
+    import threading
+    threading.Thread(target=_bg_ollama_after, daemon=True).start()
+    _desktop_log("BG-AFTER: Ollama thread started after window (non-blocking)")
 
     def _stop() -> None:
         try:
