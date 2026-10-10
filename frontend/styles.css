@@ -2348,16 +2348,16 @@ html[data-theme="anime"] .glass {
   border: 1px solid rgba(255,255,255,0.10);
   box-shadow: 0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.08);
 }
-/* анимированный градиент фона */
+/* анимированный градиент фона — БАГ2: специфичность !important чтобы перебить .ambient */
 html[data-theme="anime"] .ambient {
   background:
     radial-gradient(45% 45% at 20% 15%, rgba(255,107,157,0.22), transparent 60%),
     radial-gradient(50% 50% at 85% 15%, rgba(0,212,255,0.20), transparent 58%),
     radial-gradient(55% 55% at 50% 90%, rgba(157,124,255,0.18), transparent 60%),
-    linear-gradient(125deg, #0f0a1a, #1a0f2e, #0f1a2e, #1a0f2e);
-  background-size: 100% 100%, 100% 100%, 100% 100%, 400% 400%;
-  animation: animeGradient 18s ease infinite;
-  filter: blur(0.6rem);
+    linear-gradient(125deg, #0f0a1a, #1a0f2e, #0f1a2e, #1a0f2e) !important;
+  background-size: 100% 100%, 100% 100%, 100% 100%, 400% 400% !important;
+  animation: animeGradient 18s ease infinite !important;
+  filter: blur(0.6rem) !important;
 }
 @keyframes animeGradient {
   0%{background-position: 0% 50%}

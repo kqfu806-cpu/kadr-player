@@ -3754,6 +3754,15 @@ const clipCache = new Map();
       applyWallpaper(wallpaperIndex);
       console.log("[wallpaper] auto rotate 30min", wallpaperIndex);
     }, 30*60*1000);
+    // БАГ2 диагностика аниме-темы
+    try{
+      console.log("[theme] html data-theme =", document.documentElement.getAttribute("data-theme"));
+      console.log("[theme] ambient exists =", !!document.querySelector(".ambient"));
+      const amb = document.querySelector(".ambient");
+      if(amb) console.log("[theme] ambient bg =", getComputedStyle(amb).background.slice(0,200));
+      console.log("[theme] body::before content =", getComputedStyle(document.body, "::before").content);
+      console.log("[theme] body::before bgImage exists =", getComputedStyle(document.body, "::before").backgroundImage !== "none");
+    }catch(e){ console.log("[theme] probe err", e); }
     if (accentSelect) {
       accentSelect.value = readAccentPreference();
       accentSelect.addEventListener("change", () => applyAccent(accentSelect.value, true));
