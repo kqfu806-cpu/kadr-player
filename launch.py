@@ -122,13 +122,39 @@ def _server_log(msg: str) -> None:
     print(msg)
 
 
-def _ollama_ready(timeout: float = 1.5) -> bool:
+def _desktop_log(msg: str) -> None:
+    try:
+        d = ROOT / ".tools"
+        d.mkdir(parents=True, exist_ok=True)
+        import datetime
+
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(d / "desktop_launch.log", "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {msg.rstrip()}\n")
+    except Exception:
+        pass
+
+
+def _ollama_ready(timeout: float = 3) -> bool:
+    # non-blocking check, timeout 3s, never raises — offline is ok
+    try:
+        import requests  # type: ignore
+
+        r = requests.get("http://127.0.0.1:11434/api/tags", timeout=3)
+        ok = r.status_code == 200
+        _desktop_log(f"ollama check: {'OK' if ok else 'offline'} (requests, {r.status_code})")
+        return ok
+    except Exception:
+        pass
     try:
         import urllib.request
 
         with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=timeout) as r:
-            return r.status == 200
-    except Exception:
+            ok = r.status == 200
+            _desktop_log(f"ollama check: {'OK' if ok else 'offline'} (urllib, {r.status})")
+            return ok
+    except Exception as exc:
+        _desktop_log(f"ollama check: offline ({exc})")
         return False
 
 
@@ -152,13 +178,15 @@ def _find_ollama() -> str | None:
 
 
 def ensure_ollama() -> bool:
-    """Поднять ollama serve, если демон ещё не слушает :11434. Не боремся, если юзер закрыл."""
-    if _ollama_ready(1.5):
+    """Поднять ollama serve, если демон ещё не слушает :11434. Не блокирует запуск если offline."""
+    if _ollama_ready(3):
         _server_log("ollama auto-start: already running")
+        _desktop_log("ollama auto-start: already running")
         return True
     exe = _find_ollama()
     if not exe:
-        _server_log("ollama auto-start: ollama.exe not found")
+        _server_log("ollama auto-start: ollama.exe not found — continuing without Ollama")
+        _desktop_log("ollama auto-start: ollama.exe not found — continuing without Ollama (non-blocking)")
         return False
     log_dir = ROOT / "cache"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -175,23 +203,28 @@ def ensure_ollama() -> bool:
         proc = subprocess.Popen([exe, "serve"], **kwargs)
     except Exception as exc:
         _server_log(f"ollama auto-start: failed {exc}")
+        _desktop_log(f"ollama auto-start: failed {exc} — continuing without Ollama")
         return False
     time.sleep(2)
     code = proc.poll()
     if code is not None:
         _server_log(f"ollama auto-start: process died code={code} — see cache/ollama.log")
+        _desktop_log(f"ollama auto-start: process died code={code} — continuing without Ollama")
         return False
     t0 = time.time()
     for _ in range(40):
         if _ollama_ready(0.45):
             dt = time.time() - t0
             _server_log(f"ollama auto-start: launched pid={proc.pid}, ready in {dt:.1f}s")
+            _desktop_log(f"ollama auto-start: launched pid={proc.pid}, ready in {dt:.1f}s")
             return True
         if proc.poll() is not None:
             _server_log(f"ollama auto-start: process died while waiting — see cache/ollama.log")
+            _desktop_log("ollama auto-start: process died while waiting — continuing without Ollama")
             return False
         time.sleep(0.5)
-    _server_log(f"ollama auto-start: launched pid={proc.pid}, not ready in 20s")
+    _server_log(f"ollama auto-start: launched pid={proc.pid}, not ready in 20s — continuing without Ollama")
+    _desktop_log(f"ollama auto-start: launched pid={proc.pid}, not ready in 20s — continuing without Ollama (non-blocking, progress 100%)")
     return False
 
 
@@ -400,16 +433,21 @@ def _main_locked() -> None:
         return
 
     splash_proc = None
+    _desktop_log(f"launch app_mode={app_mode} debug={debug} — opening splash (progress 0%)")
     if app_mode and not debug:
         splash_proc = _open_splash()
+        _desktop_log("splash opened, progress 30%")
 
     ollama_ok = ensure_ollama()
     if ollama_ok:
         _report_ollama_models()
+        _desktop_log("ollama OK — progress 100% (non-blocking)")
     else:
         _server_log("Ollama not running — clips will use heuristic (low accuracy)")
+        _desktop_log("ollama offline — continuing, progress 100% (non-blocking, warn splash)")
         if splash_proc is None and app_mode and not debug:
             splash_proc = _open_splash(warn=True)
+            _desktop_log("warn splash opened, progress 30% -> 100%")
 
     log_dir = ROOT / "cache"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -431,25 +469,32 @@ def _main_locked() -> None:
     ready = False
     for _ in range(60):
         if proc.poll() is not None:
+            _desktop_log(f"server process died early code={proc.poll()}")
             break
         if health_ok(0.8):
             ready = True
+            _desktop_log("server health OK — progress 100%")
             break
         time.sleep(0.5)
 
+    # always close splash and open main window even if ollama offline — progress 100%
     if splash_proc:
         try:
             splash_proc.terminate()
+            _desktop_log("splash terminated, progress 100%")
         except Exception:
             pass
 
     if not ready:
+        _desktop_log("server not ready in 30s — opening error splash")
         if app_mode:
             _open_splash(error=True)
         die("server did not become ready in 30s — see cache/server.log")
 
+    _desktop_log("opening main window (always, even if ollama offline) — progress 100%")
     if app_mode:
         _open_window()
+        _desktop_log("main window opened — progress 100%")
         if not debug:
             _notify("Курымдык", "Курымдык свёрнут в трей. ПКМ по иконке → Выход")
     else:

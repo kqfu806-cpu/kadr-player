@@ -78,10 +78,12 @@
     var t = setInterval(function () {
       i = Math.min(i + 1, stages.length - 1);
       document.getElementById("msg").textContent = stages[i];
+      var pct = Math.min(30 + i * 20, 70);
+      var barI = document.querySelector("#bar > i");
+      if (barI) { barI.style.width = pct + "%"; }
     }, 1400);
     if (/[?&]warn=ollama/.test(location.search)) {
-      document.getElementById("msg").textContent =
-        "Ollama не запущена — клипы будут выбираться эвристикой (низкая точность)";
+      document.getElementById("ollamaStatus").textContent = "Ollama: offline — эвристика";
     }
     if (/[?&]err=1/.test(location.search)) {
       clearInterval(t);
@@ -97,12 +99,17 @@
       var el = document.getElementById("ollamaStatus");
       if (el) el.textContent = txt;
     }
+    function fetchWithTimeout(url, ms) {
+      var ctrl = new AbortController();
+      var id = setTimeout(function(){ try{ ctrl.abort(); }catch(e){} }, ms);
+      return fetch(url, { signal: ctrl.signal }).finally(function(){ clearTimeout(id); });
+    }
     function probeOllama() {
-      fetch("http://127.0.0.1:11434/api/tags").then(function (r) {
+      fetchWithTimeout("http://127.0.0.1:11434/api/tags", 3000).then(function (r) {
         if (r.ok) setOllamaStatus("Ollama: OK");
         else setOllamaStatus("Ollama: offline");
       }).catch(function () {
-        fetch("http://127.0.0.1:8000/api/health").then(function (r) { return r.json(); }).then(function (h) {
+        fetchWithTimeout("http://127.0.0.1:8000/api/health", 3000).then(function (r) { return r.json(); }).then(function (h) {
           var on = h && h.ollama && h.ollama.online;
           setOllamaStatus(on ? "Ollama: OK" : "Ollama: offline");
         }).catch(function () { setOllamaStatus("Ollama: offline"); });
@@ -110,9 +117,17 @@
     }
     probeOllama();
     setInterval(probeOllama, 4000);
+    function setProgress100() {
+      var bar = document.getElementById("bar");
+      var barI = bar && bar.querySelector("i");
+      if (barI) { barI.style.width = "100%"; barI.style.animation = "none"; barI.style.transform = "none"; }
+      if (bar) bar.style.opacity = "1";
+      clearInterval(t);
+    }
     (function ping() {
-      fetch("http://127.0.0.1:8000/api/health").then(function (r) {
+      fetchWithTimeout("http://127.0.0.1:8000/api/health", 3000).then(function (r) {
         if (r.ok) {
+          setProgress100();
           document.getElementById("msg").textContent = "Готово";
           r.json().then(function (h) {
             var on = h && h.ollama && h.ollama.online;
