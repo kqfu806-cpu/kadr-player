@@ -10,7 +10,6 @@ cache/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-tools/audiodl.exe
 .DS_Store
 Thumbs.db
 .pytest-run-*/

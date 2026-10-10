@@ -337,10 +337,16 @@ const clipCache = new Map();
     }
     try {
       let data;
+      // БАГ5: лог URL и body чтобы проверить реальный вызов
+      console.log("[download] trigger", { url: useUrl, artist, title, album, year, track_no, preview_duration: pd });
       if (useUrl) {
-        data = await api("/api/download", { method: "POST", body: JSON.stringify({ url: useUrl, artist, title, album, year, track_no, preview_duration: pd }) });
+        const body = JSON.stringify({ url: useUrl, artist, title, album, year, track_no, preview_duration: pd });
+        console.log("[download] POST /api/download body", body);
+        data = await api("/api/download", { method: "POST", body });
       } else {
-        data = await api("/api/download/by-search", { method: "POST", body: JSON.stringify({ artist, title, album, year, preview_duration: pd }) });
+        const body = JSON.stringify({ artist, title, album, year, preview_duration: pd });
+        console.log("[download] POST /api/download/by-search body", body, " query ytsearch:\""+artist+" - "+title+"\" official audio");
+        data = await api("/api/download/by-search", { method: "POST", body });
       }
       if (data.task_id) {
         toast(`Скачивается: ${artist} — ${title}`);

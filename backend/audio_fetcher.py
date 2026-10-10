@@ -16,6 +16,31 @@ from .config import ROOT
 AUDIODL_PATH = ROOT / "tools" / "audiodl.exe"
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
+def _resolve_binary() -> list[str]:
+    """БАГ5: найти audiodl.exe → yt-dlp → python -m yt_dlp — Arena игнорирует tools/ из-за .gitignore"""
+    import shutil
+    import sys
+
+    # 1. точный путь tools/audiodl.exe
+    if AUDIODL_PATH.is_file():
+        return [str(AUDIODL_PATH)]
+    # 2. системный yt-dlp
+    for name in ("yt-dlp", "yt_dlp", "audiodl"):
+        exe = shutil.which(name)
+        if exe:
+            return [exe]
+    # 3. в venv/bin
+    for cand in [ROOT / "venv" / "bin" / "yt-dlp", ROOT / "venv" / "Scripts" / "yt-dlp.exe"]:
+        if cand.is_file():
+            return [str(cand)]
+    # 4. python -m yt_dlp (pip пакет yt-dlp)
+    return [sys.executable, "-m", "yt_dlp"]
+
+def _binary_exists_hint() -> str:
+    import shutil
+    hints = [str(AUDIODL_PATH), shutil.which("yt-dlp") or "yt-dlp not in PATH", shutil.which("yt_dlp") or "yt_dlp not in PATH"]
+    return " | ".join(hints)
+
 
 def _logger() -> logging.Logger:
     logger = logging.getLogger("kadr.audio_fetcher")
@@ -48,12 +73,15 @@ class AudioFetcher:
         self.log = _logger()
 
     def fetch(self, url: str, output_path: str | Path) -> bool:
-        """Low-level fetch: tools/audiodl.exe -x --audio-format opus --audio-quality 0 -o "{output_path}.%(ext)s" "{url}" """
-        if not self.binary_path.is_file():
-            msg = "audiodl.exe не найден в tools/"
-            self.log.error("binary missing path=%s exists=%s url=%s", self.binary_path, self.binary_path.is_file(), url)
-            self.log.info("binary check path=%s full_path=%s command=%s", self.binary_path, Path(__file__).parent.parent / "tools" / "audiodl.exe", [str(self.binary_path), "-x", "--audio-format", "opus"])
-            return False
+        """Low-level fetch: tools/audiodl.exe -x --audio-format opus --audio-quality 0 -o "{output_path}.%(ext)s" "{url}" — БАГ5 fallback yt-dlp"""
+        # БАГ5: проверить tools/audiodl.exe, иначе yt-dlp / python -m yt_dlp
+        exists = self.binary_path.is_file()
+        self.log.info("binary check path=%s exists=%s url=%s hint=%s", self.binary_path, exists, url, _binary_exists_hint())
+        if not exists:
+            # пробуем fallback — не возвращаем False сразу
+            self.log.warning("audiodl.exe не найден в tools/ — пробую fallback yt-dlp/python -m yt_dlp")
+        binary_cmd = [str(self.binary_path)] if exists else _resolve_binary()
+        self.log.info("using binary cmd=%s for fetch url=%s", binary_cmd, url)
 
         output_path = Path(output_path)
         # output_path is without extension; yt-dlp will add .%(ext)s
@@ -65,7 +93,7 @@ class AudioFetcher:
             return True
 
         command = [
-            str(self.binary_path),
+            *binary_cmd,
             "-x",
             "--audio-format",
             "opus",
@@ -75,7 +103,7 @@ class AudioFetcher:
             output_template,
             url,
         ]
-        self.log.info("Fetching %s -> %s", url, output_template)
+        self.log.info("Fetching %s -> %s cmd=%s", url, output_template, command)
         try:
             result = subprocess.run(
                 command,
@@ -352,17 +380,19 @@ class AudioFetcher:
             self.log.warning("Cover embed failed for %s: %s", audio_path, exc)
 
     def search_youtube(self, artist: str, title: str) -> str | None:
-        """Bug1: search full track on YouTube via ytsearch: \"{artist} - {title}\" official audio"""
-        if not self.binary_path.is_file():
-            self.log.error("Бинарник не найден. Положите audiodl.exe в папку tools/")
-            return None
+        """Bug1: search full track on YouTube via ytsearch: \"{artist} - {title}\" official audio — БАГ5 fallback"""
+        exists = self.binary_path.is_file()
+        self.log.info("search_youtube binary check exists=%s hint=%s", exists, _binary_exists_hint())
+        if not exists:
+            self.log.warning("search_youtube fallback to yt-dlp, audiodl.exe not found")
+        binary_cmd = [str(self.binary_path)] if exists else _resolve_binary()
         # spec query exact: "{artist} - {title}" official audio
         query = f'"{artist} - {title}" official audio'
         # fallback without quotes if empty
         if not artist.strip() or not title.strip():
             query = f"{artist} - {title} official audio"
         url = f"ytsearch1:{query}"
-        command = [str(self.binary_path), "--dump-json", "--no-playlist", url]
+        command = [*binary_cmd, "--dump-json", "--no-playlist", url]
         # log
         self.log.info("search_youtube %s -> %s", f"{artist} - {title}", url)
         try:
@@ -395,18 +425,19 @@ class AudioFetcher:
         return None
 
     def search_url(self, artist: str, title: str) -> str | None:
-        """Search YouTube URL via audiodl.exe --dump-json (compat wrapper for search_youtube)"""
+        """Search YouTube URL via audiodl.exe --dump-json (compat wrapper for search_youtube) — БАГ5 fallback"""
         # try search_youtube first for full audio
         url = self.search_youtube(artist, title)
         if url:
             return url
-        if not self.binary_path.is_file():
-            self.log.error("Downloader missing for search")
-            return None
+        exists = self.binary_path.is_file()
+        if not exists:
+            self.log.warning("search_url fallback to yt-dlp for %s - %s", artist, title)
+        binary_cmd = [str(self.binary_path)] if exists else _resolve_binary()
         query = f"{artist} - {title}"
         # Use yt-dlp search: ytsearch1:query
         url = f"ytsearch1:{query}"
-        command = [str(self.binary_path), "--dump-json", "--no-playlist", url]
+        command = [*binary_cmd, "--dump-json", "--no-playlist", url]
         try:
             result = subprocess.run(
                 command,
