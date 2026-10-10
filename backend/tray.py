@@ -42,6 +42,7 @@ def _app_window_running() -> bool:
 
 
 def _open_window() -> None:
+    # БАГ1: пробуем Edge --app, через 5 сек проверяем, fallback webbrowser.open если не запустился
     if os.name == "nt":
         if _app_window_running():
             return
@@ -53,11 +54,21 @@ def _open_window() -> None:
         profile.mkdir(parents=True, exist_ok=True)
         for bin_ in (edge, edge2, chrome, chrome2):
             if bin_.is_file():
-                subprocess.Popen(
-                    [str(bin_), f"--app={URL}", f"--user-data-dir={profile}"],
-                    cwd=str(ROOT),
-                )
-                return
+                try:
+                    subprocess.Popen(
+                        [str(bin_), f"--app={URL}", f"--user-data-dir={profile}"],
+                        cwd=str(ROOT),
+                    )
+                except Exception:
+                    continue
+                # ждать 5 сек, проверить запустился ли процесс Edge app, иначе fallback
+                import time
+                for _i in range(5):
+                    time.sleep(1)
+                    if _app_window_running():
+                        return
+                # не запустился за 5 сек — fallback к webbrowser
+                break
     try:
         webbrowser.open(URL)
     except Exception:

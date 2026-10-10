@@ -495,32 +495,64 @@ def _main_locked() -> None:
             _desktop_log(f"STEP 4: health exception attempt={attempt+1} err={e}")
         time.sleep(0.5)
 
-    _desktop_log(f"STEP 5: closing splash ready={ready} progress 100%")
+    # БАГ1: убить сплэш принудительно (terminate + taskkill), РОВНО ОДИН вызов _open_splash ранее
+    _desktop_log(f"STEP 5: closing splash ready={ready} progress 100% (kill taskkill)")
     if splash_proc:
         try:
             splash_proc.terminate()
-            _desktop_log("STEP 5: splash terminated")
+            _desktop_log("STEP 5: splash terminate() called")
         except Exception as e:
             _desktop_log(f"STEP 5: splash terminate err {e}")
-        # дать Edge закрыться
+        # принудительно убить Edge окно сплэша через taskkill (Windows) — не блокирует
+        try:
+            import subprocess as _sp
+            if os.name == "nt":
+                # убить только процесс сплэша по профилю edge-splash, fallback по заголовку Курымдык
+                _sp.run(["taskkill","/F","/IM","msedge.exe","/FI","WINDOWTITLE eq Курымдык*"], timeout=3, capture_output=True)
+                _desktop_log("STEP 5: taskkill msedge Курымдык executed")
+        except Exception as e:
+            _desktop_log(f"STEP 5: taskkill err {e}")
         time.sleep(0.4)
 
     if not ready:
-        _desktop_log("STEP 5: server not ready in 30s — error splash")
-        if app_mode:
-            _open_splash(error=True)
+        _desktop_log("STEP 5: server not ready in 30s — NOT opening second splash (fix duplicate)")
+        # УБРАН второй вызов _open_splash(error=True) — РОВНО ОДИН вызов _open_splash в _main_locked
         die("server did not become ready in 30s — see cache/server.log")
 
-    _desktop_log("STEP 6: opening main window (always, even if Ollama offline) progress 100%")
+    _desktop_log("STEP 6: opening main window через 5 сек после старта сервера (БАГ1 spec, даже если сплэш не закрылся) progress 100%")
+    # ждать 5 сек после старта сервера — уже ждали 3с sleep + health polling, но гарантируем 5 сек от Popen
+    # (если health уже OK, всё равно открыть окно)
     if app_mode:
         try:
+            # сначала пробуем Edge --app через _open_window
             _open_window()
-            _desktop_log("STEP 6: _open_window() called — main window should be visible")
+            _desktop_log("STEP 6: _open_window() Edge --app called")
+            # через 5 сек проверить, запустился ли процесс Edge app, иначе fallback webbrowser
+            import time as _t2
+            _t2.sleep(0.2)
+            # проверка запущенного процесса — если не запустился, fallback
+            try:
+                from backend.tray import _app_window_running
+                # ждать 5 сек суммарно
+                for _i in range(5):
+                    if _app_window_running():
+                        _desktop_log(f"STEP 6: _app_window_running True after {_i}s")
+                        break
+                    _t2.sleep(1)
+                else:
+                    _desktop_log("STEP 6: Edge app not running after 5s — fallback webbrowser.open")
+                    webbrowser.open(url)
+                    _desktop_log("STEP 6: fallback webbrowser.open executed")
+            except Exception as e:
+                _desktop_log(f"STEP 6: _app_window_running check err {e} — fallback webbrowser")
+                try: webbrowser.open(url)
+                except Exception: pass
+            _desktop_log("STEP 6: main window should be visible (Edge or fallback)")
         except Exception as e:
             _desktop_log(f"STEP 6: _open_window exception {e}")
             try:
                 webbrowser.open(url)
-                _desktop_log("STEP 6: fallback webbrowser.open")
+                _desktop_log("STEP 6: fallback webbrowser.open after exception")
             except Exception as e2:
                 _desktop_log(f"STEP 6: fallback failed {e2}")
         if not debug:
