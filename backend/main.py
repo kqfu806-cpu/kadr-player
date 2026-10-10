@@ -1050,6 +1050,16 @@ async def api_download_by_search(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(400, "Нужно artist и title")
     url = audio_fetcher.search_url(artist, title)
     if not url:
+        # БАГ3: если бинарника нет — вернуть понятный message для frontend toast
+        from pathlib import Path as _P
+        from .config import ROOT as _ROOT
+        _aud = _P(_ROOT) / "tools" / "audiodl.exe"
+        if not _aud.is_file():
+            import shutil
+            # проверить fallback тоже
+            _has = _aud.is_file() or shutil.which("audiodl") or shutil.which("yt-dlp") or (_P(_ROOT)/"venv"/"Scripts"/"yt-dlp.exe").is_file() or (_P(_ROOT)/"venv"/"Scripts"/"audiodl.exe").is_file()
+            if not _has:
+                return {"status": "error", "message": "tools/audiodl.exe не найден. Скачайте yt-dlp.exe и переименуйте в audiodl.exe, положите в tools/"}
         raise HTTPException(404, "Не удалось найти URL для скачивания")
     return await api_download({"url": url, "artist": artist, "title": title, "album": album, "year": year})
 

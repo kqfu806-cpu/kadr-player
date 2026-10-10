@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import logging
 import re
 import subprocess
@@ -17,23 +18,37 @@ AUDIODL_PATH = ROOT / "tools" / "audiodl.exe"
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 def _resolve_binary() -> list[str]:
-    """БАГ5: найти audiodl.exe → yt-dlp → python -m yt_dlp — Arena игнорирует tools/ из-за .gitignore"""
+    """БАГ3/БАГ5: найти tools/audiodl.exe на Windows — порядок per spec"""
     import shutil
     import sys
 
-    # 1. точный путь tools/audiodl.exe
+    # 1. точный путь ROOT/tools/audiodl.exe (Windows)
     if AUDIODL_PATH.is_file():
         return [str(AUDIODL_PATH)]
-    # 2. системный yt-dlp
-    for name in ("yt-dlp", "yt_dlp", "audiodl"):
+    # 2. audiodl в PATH
+    exe = shutil.which("audiodl")
+    if exe:
+        return [exe]
+    exe = shutil.which("audiodl.exe")
+    if exe:
+        return [exe]
+    # 3. venv/Scripts/yt-dlp.exe
+    cand = ROOT / "venv" / "Scripts" / "yt-dlp.exe"
+    if cand.is_file():
+        return [str(cand)]
+    # 4. venv/Scripts/audiodl.exe
+    cand2 = ROOT / "venv" / "Scripts" / "audiodl.exe"
+    if cand2.is_file():
+        return [str(cand2)]
+    # 5. также проверить yt-dlp в PATH и venv/bin
+    for name in ("yt-dlp", "yt_dlp"):
         exe = shutil.which(name)
         if exe:
             return [exe]
-    # 3. в venv/bin
-    for cand in [ROOT / "venv" / "bin" / "yt-dlp", ROOT / "venv" / "Scripts" / "yt-dlp.exe"]:
+    for cand in [ROOT / "venv" / "bin" / "yt-dlp"]:
         if cand.is_file():
             return [str(cand)]
-    # 4. python -m yt_dlp (pip пакет yt-dlp)
+    # 6. python -m yt_dlp fallback
     return [sys.executable, "-m", "yt_dlp"]
 
 def _binary_exists_hint() -> str:
@@ -103,26 +118,23 @@ class AudioFetcher:
             output_template,
             url,
         ]
-        self.log.info("Fetching %s -> %s cmd=%s", url, output_template, command)
+        self.log.info("Fetching %s -> %s cmd=%s binary_exists=%s", url, output_template, command, Path(binary_cmd[0]).exists() if len(binary_cmd)==1 else False)
+        # Windows: shell=False, creationflags=0x08000000 CREATE_NO_WINDOW
+        run_kwargs = dict(capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, check=False)
+        if os.name == "nt":
+            run_kwargs["creationflags"] = 0x08000000
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=300,
-                check=False,
-            )
+            result = subprocess.run(command, **run_kwargs)
         except (OSError, subprocess.SubprocessError) as exc:
-            self.log.error("Audio fetch failed for %s: %s", url, exc)
+            self.log.error("Audio fetch failed for %s: %s binary=%s command=%s", url, exc, binary_cmd, command)
             return False
 
+        self.log.info("Audio downloader returncode=%s stdout=%.500s stderr=%.500s", result.returncode, result.stdout[:500], result.stderr[:500])
         if result.returncode != 0:
             self.log.error(
                 "Audio downloader exited code=%s path=%s command=%s url=%s stderr=%s stdout=%s",
                 result.returncode,
-                self.binary_path,
+                binary_cmd,
                 command,
                 url,
                 result.stderr.strip()[:1200],
@@ -395,18 +407,15 @@ class AudioFetcher:
         command = [*binary_cmd, "--dump-json", "--no-playlist", url]
         # log
         self.log.info("search_youtube %s -> %s", f"{artist} - {title}", url)
+        run_kwargs = dict(capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=False)
+        if os.name == "nt":
+            run_kwargs["creationflags"] = 0x08000000
+        self.log.info("search_youtube binary=%s command=%s query=%s", binary_cmd, command, query)
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-                check=False,
-            )
+            result = subprocess.run(command, **run_kwargs)
+            self.log.info("search_youtube returncode=%s stdout=%.500s stderr=%.500s", result.returncode, result.stdout[:500], result.stderr[:500])
             if result.returncode != 0:
-                self.log.error("search_youtube failed %s: %s %s", query, result.stderr[:800], result.stdout[:800])
+                self.log.error("search_youtube failed %s: %s %s cmd=%s", query, result.stderr[:800], result.stdout[:800], command)
                 return None
             for line in result.stdout.splitlines():
                 line=line.strip()
@@ -438,18 +447,15 @@ class AudioFetcher:
         # Use yt-dlp search: ytsearch1:query
         url = f"ytsearch1:{query}"
         command = [*binary_cmd, "--dump-json", "--no-playlist", url]
+        run_kwargs = dict(capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=False)
+        if os.name == "nt":
+            run_kwargs["creationflags"] = 0x08000000
+        self.log.info("search_url binary=%s command=%s query=%s", binary_cmd, command, query)
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-                check=False,
-            )
+            result = subprocess.run(command, **run_kwargs)
+            self.log.info("search_url returncode=%s stdout=%.300s stderr=%.300s", result.returncode, result.stdout[:300], result.stderr[:300])
             if result.returncode != 0:
-                self.log.warning("Search failed for %s: %s", query, result.stderr[:300])
+                self.log.warning("Search failed for %s: %s cmd=%s", query, result.stderr[:300], command)
                 return None
             # yt-dlp outputs one JSON per line
             for line in result.stdout.splitlines():

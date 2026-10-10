@@ -348,6 +348,13 @@ const clipCache = new Map();
         console.log("[download] POST /api/download/by-search body", body, " query ytsearch:\""+artist+" - "+title+"\" official audio");
         data = await api("/api/download/by-search", { method: "POST", body });
       }
+      // БАГ3: если бэкенд вернул статус error из-за отсутствия бинарника — показать message через toast
+      if(data && data.status === "error"){
+        const msg = data.message || data.detail || "Ошибка скачивания";
+        console.error("[download] backend error", data);
+        toast(msg);
+        throw new Error(msg);
+      }
       if (data.task_id) {
         toast(`Скачивается: ${artist} — ${title}`);
         // poll for direct url case too
