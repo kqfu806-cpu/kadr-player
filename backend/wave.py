@@ -580,6 +580,8 @@ async def recommend(
         elif len(remote) < target * 0.5:
             need_youtube = True
             youtube_reason = f"lastfm_partial {len(remote)}/{target} <50%"
+        # БАГ3 FIX: подробная отладка почему fallback не срабатывает
+        log.info("wave: remote=%d target=%d need_youtube=%s reason=%s lastfm_error=%s", len(remote), target, need_youtube, youtube_reason, _last_recommend_attempt.get("lastfm_error"))
         if need_youtube:
             log.info("wave youtube fallback needed reason=%s remote_before=%d target=%d", youtube_reason, len(remote), target)
             _last_recommend_attempt["fallback_reason"] = youtube_reason
@@ -619,6 +621,7 @@ async def recommend(
             except Exception as e:
                 log.exception("youtube fallback failed mode=%s reason=%s: %s\n%s", mode, youtube_reason, type(e).__name__, traceback.format_exc())
                 _last_recommend_attempt["yt_error"] = f"{type(e).__name__}: {e}"
+                log.warning("wave youtube fallback exception seeds=%s error=%s", seeds[:2] if 'seeds' in locals() else [], f"{type(e).__name__}: {e}")
                 yt_returned = 0
         else:
             # если remote достаточно (>=50%) — youtube не нужен
@@ -982,12 +985,20 @@ async def _youtube_fallback_tracks(tracks: list[Track], known: set[tuple[str,str
         if tr:
             seeds.append(f"{tr.artist} - {tr.title}")
     if not seeds:
-        # fallback на случайные треки из библиотеки
-        seeds = [f"{tr.artist} - {tr.title}" for tr in random.sample(tracks, min(3, len(tracks))) if tr.artist and tr.title]
+        # БАГ3 FIX: если нет истории — 5 случайных треков из библиотеки как seeds
+        try:
+            seeds = [f"{tr.artist} - {tr.title}" for tr in random.sample(tracks, min(5, len(tracks))) if tr.artist and tr.title]
+        except Exception:
+            seeds = []
+        log.info("wave youtube seeds: history empty, random %d seeds from library: %s", len(seeds), seeds[:3])
     if not seeds:
         seeds = ["lofi hip hop", "phonk", "tokyo ghoul"]
+        log.info("wave youtube seeds: fallback to default %s", seeds)
+    else:
+        log.info("wave youtube seeds: %d seeds from history/library: %s", len(seeds), seeds[:3])
     candidates: list[dict[str, Any]] = []
     seen = set(known)
+    log.info("wave youtube fallback start: seeds=%s known=%d excluded=%d count=%d", seeds[:3], len(known), len(excluded), count)
     for q in seeds[:3]:
         try:
             results = await _yt_music_search(q, limit=5)
