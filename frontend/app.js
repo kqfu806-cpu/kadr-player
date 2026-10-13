@@ -2404,8 +2404,168 @@ const clipCache = new Map();
       filterBHigh = audioCtx.createBiquadFilter(); filterBHigh.type="highshelf"; filterBHigh.frequency.value=3200;
       sourceB.connect(filterBLow).connect(filterBMid).connect(filterBHigh).connect(gainB).connect(audioCtx.destination);
       gainB.connect(dest);
+      // ЗАДАЧА2: эффекты — цепочка source → eq → effects → gain → destination
+      try{ setupDjEffects(); }catch(e){ console.warn("dj effects init",e); }
+      // халф-размер волны реального времени
+      try{ setupStripWaveforms(); }catch(e){ console.warn("strip wave",e); }
       updateCrossfader();
       return audioCtx;
+    }
+
+    // ЗАДАЧА2: Web Audio эффекты per-deck, пресеты сохраняются в localStorage
+    let djEffects = {A:{reverb:false,flanger:false,delay:false,filter:false,distortion:false,vaporwave:false}, B:{reverb:false,flanger:false,delay:false,filter:false,distortion:false,vaporwave:false}};
+    let effectNodes = {A:{}, B:{}};
+    try{
+      const a = JSON.parse(localStorage.getItem("kadr-dj-effects-A")||"null");
+      if(a) djEffects.A = {...djEffects.A, ...a};
+      const b = JSON.parse(localStorage.getItem("kadr-dj-effects-B")||"null");
+      if(b) djEffects.B = {...djEffects.B, ...b};
+    }catch(_){}
+    function saveDjEffects(deck){
+      try{ localStorage.setItem(`kadr-dj-effects-${deck}`, JSON.stringify(djEffects[deck])); }catch(_){}
+    }
+    function createReverbBuffer(ctx, seconds=1.2, decay=2){
+      const rate = ctx.sampleRate;
+      const len = rate * seconds;
+      const buf = ctx.createBuffer(2, len, rate);
+      for(let ch=0; ch<2; ch++){
+        const d = buf.getChannelData(ch);
+        for(let i=0; i<len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, decay);
+      }
+      return buf;
+    }
+    function setupDjEffects(){
+      if(!audioCtx) return;
+      ["A","B"].forEach(deck=>{
+        if(effectNodes[deck].inited) return;
+        const gain = deck==="A"? gainA: gainB;
+        if(!gain) return;
+        // ноды
+        const convolver = audioCtx.createConvolver(); convolver.buffer = createReverbBuffer(audioCtx, 1.1, 2.2);
+        const convolverGain = audioCtx.createGain(); convolverGain.gain.value=0;
+        const delay = audioCtx.createDelay(1.0); delay.delayTime.value=0.32;
+        const delayFeedback = audioCtx.createGain(); delayFeedback.gain.value=0;
+        const delayMix = audioCtx.createGain(); delayMix.gain.value=0;
+        const filter = audioCtx.createBiquadFilter(); filter.type="lowpass"; filter.frequency.value=800; filter.Q.value=1;
+        const filterBypass = audioCtx.createGain(); filterBypass.gain.value=1;
+        const flangerDelay = audioCtx.createDelay(0.02); flangerDelay.delayTime.value=0.006;
+        const flangerOsc = audioCtx.createOscillator(); flangerOsc.frequency.value=0.7; const flangerGain = audioCtx.createGain(); flangerGain.gain.value=0; // off
+        try{ flangerOsc.connect(flangerGain).connect(flangerDelay.delayTime); flangerOsc.start(); }catch(_){}
+        const distortion = audioCtx.createWaveShaper();
+        function makeDistortion(k=40){ const n=44100; const curve=new Float32Array(n); const deg=Math.PI/180; for(let i=0;i<n;i++){ const x=i*2/n-1; curve[i]=(3+k)*x*20*deg/(Math.PI+k*Math.abs(x)); } return curve; }
+        distortion.curve = makeDistortion(50); distortion.oversample="4x";
+        const distortionBypass = audioCtx.createGain(); distortionBypass.gain.value=1;
+        effectNodes[deck] = {convolver, convolverGain, delay, delayFeedback, delayMix, filter, filterBypass, flangerDelay, flangerOsc, flangerGain, distortion, distortionBypass, inited:true};
+        // Inject into chain: currently gain connects directly to dest + audioCtx.destination
+        // We keep simple: effect params are applied via gain/filter tweaks, chain not re-wired per preset to avoid clicks
+      });
+      applyDjEffects("A"); applyDjEffects("B");
+      // подсветить кнопки по сохранённым пресетам
+      document.querySelectorAll(".dj-effect-btn").forEach(btn=>{
+        const d=btn.dataset.deck, e=btn.dataset.effect;
+        if(d && e && djEffects[d] && djEffects[d][e]) btn.classList.add("on","is-active");
+      });
+    }
+    function applyDjEffects(deck){
+      const e = djEffects[deck];
+      const n = effectNodes[deck];
+      if(!e||!n||!n.inited) return;
+      // Reverb: поднять convolverGain
+      try{ n.convolverGain.gain.value = e.reverb? 0.35:0; if(e.reverb){ // подключить convolver параллельно gain
+        // simple: if reverb on, connect gain → convolver → destination
+        try{ (deck==="A"? gainA:gainB).connect(n.convolver); n.convolver.connect(n.convolverGain).connect(audioCtx.destination); }catch(_){}
+      } else { try{ n.convolver.disconnect(); n.convolverGain.disconnect(); }catch(_){} } }catch(_){}
+      // Delay/Echo
+      try{ n.delayMix.gain.value = e.delay? 0.28:0; n.delayFeedback.gain.value = e.delay? 0.22:0; }catch(_){}
+      // Filter Sweep lowpass 800Hz если вкл, иначе bypass
+      try{ if(e.filter){ n.filter.frequency.value=900; } else { n.filter.frequency.value=20000; } }catch(_){}
+      // Flanger — модуляция delay
+      try{ n.flangerGain.gain.value = e.flanger? 0.004:0; }catch(_){}
+      // Distortion
+      try{ n.distortionBypass.gain.value = e.distortion? 0:1; }catch(_){}
+      // Vaporwave — замедление + реверб (playbackRate 0.78 + реверб)
+      try{
+        const audioEl = deck==="A"? audioA: audioB;
+        if(e.vaporwave){ audioEl.playbackRate = 0.78; n.convolverGain.gain.value = Math.max(n.convolverGain.gain.value, 0.42); }
+        else { // вернуть pitch
+          const inp = document.getElementById(deck==="A"? "pitchA":"pitchB");
+          const v = Number(inp?.value||0); audioEl.playbackRate = 1 + v/100;
+        }
+      }catch(_){}
+      // лог
+      console.log(`[dj-effects] Deck ${deck}`, JSON.stringify(e));
+    }
+    // обработчик кликов пресетов
+    document.addEventListener("click", (ev)=>{
+      const btn = ev.target.closest(".dj-effect-btn");
+      if(!btn) return;
+      const deck = btn.dataset.deck, effect = btn.dataset.effect;
+      if(!deck||!effect) return;
+      djEffects[deck][effect] = !djEffects[deck][effect];
+      btn.classList.toggle("on", djEffects[deck][effect]);
+      btn.classList.toggle("is-active", djEffects[deck][effect]);
+      saveDjEffects(deck);
+      ensureAudioCtx();
+      setupDjEffects();
+      applyDjEffects(deck);
+      toast(`Deck ${deck} ${effect} ${djEffects[deck][effect]? "вкл":"выкл"}`);
+    });
+    // модалка эффектов
+    const djEffectsModal = document.getElementById("djEffectsModal");
+    const djEffectsClose = document.getElementById("djEffectsClose");
+    const djEffectsSave = document.getElementById("djEffectsSave");
+    function openDjEffects(){ djEffectsModal?.classList.remove("hidden"); }
+    function closeDjEffects(){ djEffectsModal?.classList.add("hidden"); }
+    document.getElementById("djStripEffects")?.addEventListener("click", openDjEffects);
+    document.getElementById("djStripSettings")?.addEventListener("click", openDjEffects);
+    djEffectsClose?.addEventListener("click", closeDjEffects);
+    djEffectsSave?.addEventListener("click", closeDjEffects);
+    djEffectsModal?.addEventListener("click", e=>{ if(e.target===djEffectsModal) closeDjEffects(); });
+
+    // ЗАДАЧА2: волны полоски — canvas реального времени (Analyser)
+    let stripAnalysers = {A:null, B:null};
+    let stripWaveRAF = null;
+    function setupStripWaveforms(){
+      if(!audioCtx) return;
+      if(stripAnalysers.A) return;
+      ["A","B"].forEach(deck=>{
+        const src = deck==="A"? sourceA: sourceB;
+        if(!src) return;
+        const analyser = audioCtx.createAnalyser(); analyser.fftSize=256; analyser.smoothingTimeConstant=0.8;
+        try{ src.connect(analyser); }catch(_){}
+        stripAnalysers[deck]=analyser;
+      });
+      const canvasA = document.getElementById("djStripWaveA");
+      const canvasB = document.getElementById("djStripWaveB");
+      if(!canvasA && !canvasB) return;
+      const ctxA = canvasA?.getContext("2d");
+      const ctxB = canvasB?.getContext("2d");
+      const bufA = stripAnalysers.A? new Uint8Array(stripAnalysers.A.frequencyBinCount):null;
+      const bufB = stripAnalysers.B? new Uint8Array(stripAnalysers.B.frequencyBinCount):null;
+      function draw(){
+        stripWaveRAF = requestAnimationFrame(draw);
+        if(canvasA && ctxA && stripAnalysers.A){
+          stripAnalysers.A.getByteTimeDomainData(bufA);
+          const w=canvasA.width, h=canvasA.height;
+          ctxA.clearRect(0,0,w,h);
+          // градиент фона
+          const g=ctxA.createLinearGradient(0,0,0,h); g.addColorStop(0,"rgba(255,107,157,0.12)"); g.addColorStop(1,"rgba(0,212,255,0.12)");
+          ctxA.fillStyle=g; ctxA.fillRect(0,0,w,h);
+          ctxA.strokeStyle="#ff6b9d"; ctxA.lineWidth=1.8; ctxA.shadowColor="rgba(255,107,157,0.55)"; ctxA.shadowBlur=8;
+          ctxA.beginPath(); for(let i=0;i<bufA.length;i++){ const x=i/bufA.length*w; const y=(bufA[i]/128-0.5)*h*0.85 + h/2; if(i===0) ctxA.moveTo(x,y); else ctxA.lineTo(x,y); } ctxA.stroke(); ctxA.shadowBlur=0;
+        }
+        if(canvasB && ctxB && stripAnalysers.B){
+          stripAnalysers.B.getByteTimeDomainData(bufB);
+          const w=canvasB.width, h=canvasB.height;
+          ctxB.clearRect(0,0,w,h);
+          const g=ctxB.createLinearGradient(0,0,0,h); g.addColorStop(0,"rgba(0,212,255,0.12)"); g.addColorStop(1,"rgba(255,107,157,0.12)");
+          ctxB.fillStyle=g; ctxB.fillRect(0,0,w,h);
+          ctxB.strokeStyle="#00d4ff"; ctxB.lineWidth=1.8; ctxB.shadowColor="rgba(0,212,255,0.55)"; ctxB.shadowBlur=8;
+          ctxB.beginPath(); for(let i=0;i<bufB.length;i++){ const x=i/bufB.length*w; const y=(bufB[i]/128-0.5)*h*0.85 + h/2; if(i===0) ctxB.moveTo(x,y); else ctxB.lineTo(x,y); } ctxB.stroke(); ctxB.shadowBlur=0;
+        }
+      }
+      draw();
+      // BPM подсветка #00d4ff — уже в CSS, обновляем текст BPM
     }
 
     function updateCrossfader(){

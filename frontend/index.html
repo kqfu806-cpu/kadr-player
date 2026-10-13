@@ -368,6 +368,7 @@
     <div class="dj-strip-head"><span class="dj-strip-label">DECK A</span><span class="dj-strip-bpm" id="djStripBpmA">— BPM</span></div>
     <div class="dj-strip-title-wrap" title="Трек Deck A — скролл если длинное название"><span class="dj-strip-title" id="djStripTitleA">Deck A — пусто</span></div>
     <div class="dj-strip-progress" aria-hidden="true"><div class="dj-strip-progress-fill" id="djStripProgressA"></div></div>
+    <canvas id="djStripWaveA" class="dj-strip-wave" width="320" height="56" aria-label="Wave A" style="width:100%; height:56px; border-radius:0.45rem; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06);"></canvas>
     <div class="dj-strip-controls">
       <button class="dj-strip-btn dj-round" id="djStripPlayA" type="button" title="Play/Pause Deck A">▶</button>
       <button class="dj-strip-btn dj-round ghost" id="djStripPauseA" type="button" title="Pause Deck A">❚❚</button>
@@ -380,11 +381,16 @@
     <input type="range" id="djStripCrossfader" min="0" max="100" value="50" class="dj-crossfader-strip" aria-label="Crossfader">
     <div class="dj-strip-xf-hint"><span>A</span><span style="color:#ff6b9d">●</span><span>B</span></div>
     <button class="btn ghost dj-sync-btn" id="djStripSync" type="button" title="Скопировать BPM/темп с Deck A на Deck B">◎ Синхронизировать</button>
+    <div class="dj-strip-extra" style="display:flex; gap:0.35rem; margin-top:0.25rem;">
+      <button class="btn ghost" id="djStripEffects" type="button" title="Эффекты">🎚️ Эффекты</button>
+      <button class="btn ghost" id="djStripSettings" type="button" title="Настройки DJ">⚙️ Настройки DJ</button>
+    </div>
   </div>
   <div class="dj-strip-deck" id="djStripDeckB">
     <div class="dj-strip-head"><span class="dj-strip-label">DECK B</span><span class="dj-strip-bpm" id="djStripBpmB">— BPM</span></div>
     <div class="dj-strip-title-wrap" title="Трек Deck B — скролл"><span class="dj-strip-title" id="djStripTitleB">Deck B — пусто</span></div>
     <div class="dj-strip-progress" aria-hidden="true"><div class="dj-strip-progress-fill" id="djStripProgressB"></div></div>
+    <canvas id="djStripWaveB" class="dj-strip-wave" width="320" height="56" aria-label="Wave B" style="width:100%; height:56px; border-radius:0.45rem; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06);"></canvas>
     <div class="dj-strip-controls">
       <button class="btn ghost" id="djStripLoadB" type="button">Загрузить в B</button>
       <button class="dj-strip-btn dj-round" id="djStripPlayB" type="button" title="Play/Pause Deck B">▶</button>
@@ -661,6 +667,40 @@
         </div>
         <div class="dj-eq-master muted">EQ Low/Mid/High — на каждой деке · Pitch ±10% · MediaRecorder .webm · BPM <span id="djMixerBpmInfo" class="muted">—</span></div>
       </div>
+    </section>
+  </div>
+
+  <div class="modal hidden" id="djEffectsModal" role="dialog" aria-modal="true" aria-labelledby="djEffectsTitle">
+    <section class="modal-card glass glare" style="max-width:780px; width:92%;">
+      <header>
+        <h2 id="djEffectsTitle">🎚️ DJ Эффекты — Deck A / B</h2>
+        <button class="icon-btn sm" id="djEffectsClose" type="button">✕</button>
+      </header>
+      <div class="dj-effects-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; padding:0.8rem 0;">
+        <div class="dj-effects-col" data-deck="A">
+          <h3 style="margin:0 0 0.5rem; color:#ff6b9d; text-shadow:0 0 8px rgba(255,107,157,0.5);">Deck A</h3>
+          <div class="dj-effects-presets" style="display:grid; grid-template-columns:1fr 1fr; gap:0.45rem;">
+            <button class="btn ghost dj-effect-btn" data-effect="reverb" data-deck="A" type="button">Reverb (зал)</button>
+            <button class="btn ghost dj-effect-btn" data-effect="flanger" data-deck="A" type="button">Flanger</button>
+            <button class="btn ghost dj-effect-btn" data-effect="delay" data-deck="A" type="button">Delay/Echo</button>
+            <button class="btn ghost dj-effect-btn" data-effect="filter" data-deck="A" type="button">Filter Sweep</button>
+            <button class="btn ghost dj-effect-btn" data-effect="distortion" data-deck="A" type="button">Distortion</button>
+            <button class="btn ghost dj-effect-btn" data-effect="vaporwave" data-deck="A" type="button">Vaporwave</button>
+          </div>
+        </div>
+        <div class="dj-effects-col" data-deck="B">
+          <h3 style="margin:0 0 0.5rem; color:#00d4ff; text-shadow:0 0 8px rgba(0,212,255,0.5);">Deck B</h3>
+          <div class="dj-effects-presets" style="display:grid; grid-template-columns:1fr 1fr; gap:0.45rem;">
+            <button class="btn ghost dj-effect-btn" data-effect="reverb" data-deck="B" type="button">Reverb (зал)</button>
+            <button class="btn ghost dj-effect-btn" data-effect="flanger" data-deck="B" type="button">Flanger</button>
+            <button class="btn ghost dj-effect-btn" data-effect="delay" data-deck="B" type="button">Delay/Echo</button>
+            <button class="btn ghost dj-effect-btn" data-effect="filter" data-deck="B" type="button">Filter Sweep</button>
+            <button class="btn ghost dj-effect-btn" data-effect="distortion" data-deck="B" type="button">Distortion</button>
+            <button class="btn ghost dj-effect-btn" data-effect="vaporwave" data-deck="B" type="button">Vaporwave</button>
+          </div>
+        </div>
+      </div>
+      <footer style="display:flex; justify-content:space-between; align-items:center;"><span class="muted" style="font-size:0.72rem;">Комбинируются • сохраняются в localStorage kadr-dj-effects-A/B</span><button class="btn primary" id="djEffectsSave" type="button">Закрыть</button></footer>
     </section>
   </div>
 
