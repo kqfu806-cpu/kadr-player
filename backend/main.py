@@ -705,7 +705,9 @@ async def api_record_play(body: dict[str, Any]) -> dict[str, Any]:
         duration = float(body.get("duration"))
     except (TypeError, ValueError):
         raise HTTPException(400, "Некорректная длительность прослушивания")
-    if not 30 < duration <= 24 * 60 * 60:
+    if duration <= 30:
+        return {"status": "skipped"}
+    if duration > 24 * 60 * 60:
         raise HTTPException(400, "Прослушивание должно быть больше 30 секунд")
     session_id = str(body.get("session_id") or "").strip()
     if not 1 <= len(session_id) <= 100:
