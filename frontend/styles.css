@@ -2843,6 +2843,123 @@ html[data-theme="anime"] .btn.primary:hover {
   filter: saturate(1.08);
 }
 html[data-theme="anime"] .btn.primary:active { transform: translateY(0) scale(0.99); }
+
+/* ЗАДАЧА3: 4 аниме × 2 режима — разные акценты и обои под тёмный/светлый фон */
+html[data-theme="anime-titan-dark"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/attack-on-titan/dark/wallpaper.jpg');
+  --accent: #dc2626; --accent-2: #991b1b; --accent-1: #dc2626; --glow: 220, 38, 38;
+  --bg: #0a0a0c; --bg-elev: #1e1430; --text: #f8f0ff; --muted: rgba(248,240,255,0.62);
+  --anime-gradient: linear-gradient(125deg, #1a0a0a, #2e0f0f, #1a0f1a, #0f0a1a);
+}
+html[data-theme="anime-titan-light"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/attack-on-titan/light/wallpaper.jpg');
+  --accent: #ef4444; --accent-2: #f87171; --accent-1: #ef4444; --glow: 239, 68, 68;
+  --bg: #fdf2f2; --bg-elev: #fff; --text: #1a1a1a; --muted: rgba(26,26,26,0.62);
+  --anime-gradient: linear-gradient(125deg, #fdf2f2, #fee2e2, #fef2f2, #fff1f1);
+}
+html[data-theme="anime-berserk-dark"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/berserk/dark/wallpaper.jpg');
+  --accent: #b91c1c; --accent-2: #7f1d1d; --accent-1: #b91c1c; --glow: 185, 28, 28;
+  --bg: #0f0a0a; --bg-elev: #1e1414; --text: #f8f0ff; --muted: rgba(248,240,255,0.62);
+  --anime-gradient: linear-gradient(125deg, #0f0a0a, #1e0f0f, #1a1410, #0f0a0a);
+}
+html[data-theme="anime-berserk-light"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/berserk/light/wallpaper.jpg');
+  --accent: #dc2626; --accent-2: #fca5a5; --accent-1: #dc2626; --glow: 220, 38, 38;
+  --bg: #fef2f2; --bg-elev: #fff; --text: #1a1a1a; --muted: rgba(26,26,26,0.62);
+  --anime-gradient: linear-gradient(125deg, #fef2f2, #fecaca, #fff, #fef2f2);
+}
+html[data-theme="anime-overlord-dark"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/overlord/dark/wallpaper.jpg');
+  --accent: #a855f7; --accent-2: #7c3aed; --accent-1: #a855f7; --glow: 168, 85, 247;
+  --bg: #0f0a1a; --bg-elev: #1e0f2e; --text: #f8f0ff; --muted: rgba(248,240,255,0.62);
+  --anime-gradient: linear-gradient(125deg, #0f0a1a, #1e0f2e, #0f1a2e, #1a0f2e);
+}
+html[data-theme="anime-overlord-light"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/overlord/light/wallpaper.jpg');
+  --accent: #c084fc; --accent-2: #a855f7; --accent-1: #c084fc; --glow: 192, 132, 252;
+  --bg: #fdf4ff; --bg-elev: #fff; --text: #1a1a1a; --muted: rgba(26,26,26,0.62);
+  --anime-gradient: linear-gradient(125deg, #fdf4ff, #f3e8ff, #fae8ff, #fdf4ff);
+}
+html[data-theme="anime-diary-dark"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/future-diary/dark/wallpaper.jpg');
+  --accent: #f43f5e; --accent-2: #e11d48; --accent-1: #f43f5e; --glow: 244, 63, 94;
+  --bg: #0f0a14; --bg-elev: #1e1430; --text: #fff0f5; --muted: rgba(255,240,245,0.62);
+  --anime-gradient: linear-gradient(125deg, #0f0a14, #2e0f1a, #1a0f1a, #0f0a14);
+}
+html[data-theme="anime-diary-light"] {
+  --anime-wallpaper: url('/static/assets/anime/themes/future-diary/light/wallpaper.jpg');
+  --accent: #fb7185; --accent-2: #f43f5e; --accent-1: #fb7185; --glow: 251, 113, 133;
+  --bg: #fff1f2; --bg-elev: #fff; --text: #1a1a1a; --muted: rgba(26,26,26,0.62);
+  --anime-gradient: linear-gradient(125deg, #fff1f2, #ffe4e6, #fff, #fff1f2);
+}
+/* каждая аниме-тема наследует body фон */
+html[data-theme="anime-titan-dark"] body,
+html[data-theme="anime-titan-light"] body,
+html[data-theme="anime-berserk-dark"] body,
+html[data-theme="anime-berserk-light"] body,
+html[data-theme="anime-overlord-dark"] body,
+html[data-theme="anime-overlord-light"] body,
+html[data-theme="anime-diary-dark"] body,
+html[data-theme="anime-diary-light"] body {
+  background: var(--bg);
+  background-image: var(--anime-wallpaper, var(--anime-gradient));
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  transition: background-image 0.8s ease;
+}
+
+/* ЗАДАЧА3: сетка аниме-тем + карточки */
+.anime-themes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 0.6rem;
+  margin: 0.8rem 0;
+}
+.theme-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.75rem 0.8rem;
+  border-radius: 0.9rem;
+  border: 1px solid var(--stroke);
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  text-align: left;
+  overflow: hidden;
+}
+.theme-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 65%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.theme-card > span { position: relative; z-index: 1; }
+.theme-card .theme-mode { font-size: 0.7rem; color: var(--muted); }
+.theme-card .theme-preview {
+  width: 100%; height: 22px; border-radius: 6px; margin-top: 0.3rem;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent);
+  position: relative; z-index: 1;
+}
+.theme-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent), 0 0 24px color-mix(in srgb, var(--accent) 28%, transparent), 0 8px 32px rgba(0,0,0,0.45);
+  transform: translateY(-2px);
+}
+.theme-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--stroke));
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35), 0 0 18px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
  /* ghost / secondary — glass + subtle neon rim */
 html[data-theme="anime"] .btn.ghost,
 html[data-theme="anime"] .btn.secondary,

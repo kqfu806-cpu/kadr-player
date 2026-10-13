@@ -4734,6 +4734,18 @@ const clipCache = new Map();
 
   // FIX Bug10: proper light theme (#f5f5f7 bg, #1a1a1a text, blue accent), 6-8 accent colors, opacity slider, localStorage persist
   function applyTheme(t) {
+    // ЗАДАЧА3: аниме-подтемы сохраняют свой data-theme, не форсим dark
+    if (String(t).startsWith("anime-titan") || String(t).startsWith("anime-berserk") || String(t).startsWith("anime-overlord") || String(t).startsWith("anime-diary")) {
+      document.documentElement.setAttribute("data-theme", t);
+      try { document.body && document.body.setAttribute("data-theme", t); } catch(_){}
+      try { localStorage.setItem("kadr-theme", t); } catch(_){}
+      try { localStorage.setItem(presetKey, t); localStorage.setItem("kadr-anime-theme", t); } catch(_){}
+      // обновляем активные кнопки
+      document.querySelectorAll(".theme-preset-btn").forEach(b=> b.classList.toggle("is-active", b.dataset.preset===t));
+      document.querySelectorAll(".theme-card").forEach(b=> b.classList.toggle("is-active", b.dataset.animeTheme===t));
+      console.log('[theme] apply anime sub-theme', t);
+      return;
+    }
     const theme = t === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", theme);
     try { document.body && document.body.setAttribute("data-theme", theme); } catch(_){}
@@ -4783,7 +4795,8 @@ const clipCache = new Map();
     const opacitySlider = $("interfaceOpacity");
     const opacityValue = $("interfaceOpacityValue");
     const presetKey = "kadr-theme-preset";
-    const presets = ["dark","light","anime","cyberpunk","samurai","dragon","auto"];
+    const presets = ["dark","light","anime","cyberpunk","samurai","dragon","auto","anime-titan-dark","anime-titan-light","anime-berserk-dark","anime-berserk-light","anime-overlord-dark","anime-overlord-light","anime-diary-dark","anime-diary-light"];
+    const animeThemes = ["anime-titan-dark","anime-titan-light","anime-berserk-dark","anime-berserk-light","anime-overlord-dark","anime-overlord-light","anime-diary-dark","anime-diary-light"];
     let themeMode = "anime";
     try {
       const savedPreset = localStorage.getItem(presetKey);
@@ -4811,6 +4824,11 @@ const clipCache = new Map();
       document.documentElement.setAttribute("data-theme", effective);
       try { document.body && document.body.setAttribute("data-theme", effective); } catch(_){}
       console.log('[theme] data-theme set', document.documentElement.getAttribute('data-theme'), 'body', document.body.getAttribute('data-theme'));
+      // ЗАДАЧА3: сохраняем аниме-тему отдельно
+      if(animeThemes.includes(preset)){
+        try{ localStorage.setItem("kadr-anime-theme", preset); }catch(_){}
+        document.querySelectorAll(".theme-card").forEach(b=> b.classList.toggle("is-active", b.dataset.animeTheme===preset));
+      }
       // store
       if(persist){ try{ localStorage.setItem(presetKey, preset); localStorage.setItem(themeModeStorageKey, preset); }catch(_){} }
       // update UI highlights
@@ -4842,6 +4860,36 @@ const clipCache = new Map();
     document.querySelectorAll("[data-preset]").forEach(btn=>{
       btn.addEventListener("click", ()=> applyPreset(btn.dataset.preset));
     });
+    // ЗАДАЧА3: Аниме-темы — клик на карточку
+    const animeThemeKey = "kadr-anime-theme";
+    function applyAnimeTheme(preset){
+      if(!animeThemes.includes(preset)) return;
+      console.log('[anime-theme] apply', preset);
+      applyPreset(preset, true);
+      try{ localStorage.setItem(animeThemeKey, preset); }catch(_){}
+      // подсветка
+      document.querySelectorAll(".theme-card").forEach(b=> b.classList.toggle("is-active", b.dataset.animeTheme===preset));
+      // wallpaper для аниме-темы — ставим основной wallpaper.jpg, сброс индекса
+      try{
+        const cur = document.documentElement.getAttribute("data-theme");
+        if(cur && cur.startsWith("anime-")){
+          // сбрасываем anime wallpaper индекс чтобы показать дефолтный из темы
+          document.documentElement.style.removeProperty('--anime-wallpaper-index');
+        }
+      }catch(_){}
+    }
+    document.querySelectorAll("[data-anime-theme]").forEach(btn=>{
+      btn.addEventListener("click", ()=> applyAnimeTheme(btn.dataset.animeTheme));
+    });
+    // применить сохранённую аниме-тему при загрузке
+    try{
+      const savedAnime = localStorage.getItem(animeThemeKey);
+      if(savedAnime && animeThemes.includes(savedAnime)){
+        console.log('[anime-theme] restore saved', savedAnime);
+        applyPreset(savedAnime, false);
+        document.querySelectorAll(".theme-card").forEach(b=> b.classList.toggle("is-active", b.dataset.animeTheme===savedAnime));
+      }
+    }catch(_){}
     // initial preset apply without persist to set correct UI
     applyPreset(themeMode, false);
     // БАГ8: аниме-обои меняются только при перезагрузке — добавить кнопку и ротацию 30мин
@@ -4963,11 +5011,66 @@ const clipCache = new Map();
       document.documentElement.style.setProperty('--anime-wallpaper-index', String(animeWallpaperIndex));
     }
     const animeWallpaperBtn = document.getElementById("btnChangeWallpaper");
-    animeWallpaperBtn?.addEventListener("click", ()=>{
-      if((document.documentElement.getAttribute('data-theme')||'dark')==='anime'){
+    // ЗАДАЧА3: для anime-подтем — менять wallpaper-01..15 в папке темы
+    let animeThemeWallpaperIndex = 0;
+    try{ const s=localStorage.getItem("kadr-anime-theme-wallpaper-index"); if(s!==null) animeThemeWallpaperIndex=parseInt(s,10)||0; }catch(_){}
+    async function applyAnimeThemeWallpaper(idx){
+      const cur = document.documentElement.getAttribute("data-theme") || "";
+      let base = "";
+      if(cur==="anime-titan-dark") base="/static/assets/anime/themes/attack-on-titan/dark";
+      else if(cur==="anime-titan-light") base="/static/assets/anime/themes/attack-on-titan/light";
+      else if(cur==="anime-berserk-dark") base="/static/assets/anime/themes/berserk/dark";
+      else if(cur==="anime-berserk-light") base="/static/assets/anime/themes/berserk/light";
+      else if(cur==="anime-overlord-dark") base="/static/assets/anime/themes/overlord/dark";
+      else if(cur==="anime-overlord-light") base="/static/assets/anime/themes/overlord/light";
+      else if(cur==="anime-diary-dark") base="/static/assets/anime/themes/future-diary/dark";
+      else if(cur==="anime-diary-light") base="/static/assets/anime/themes/future-diary/light";
+      else { // generic anime
+        applyAnimeWallpaper(animeWallpaperIndex);
+        return;
+      }
+      const n = ((idx % 15)+15)%15 + 1;
+      const padded = String(n).padStart(2,'0');
+      const url = `${base}/wallpaper-${padded}.jpg`;
+      const fallback = `${base}/wallpaper.jpg`;
+      console.log('[anime-theme-wallpaper] try', url);
+      let exists=false;
+      try{
+        const r=await fetch(url, {method:'HEAD'});
+        exists=r.ok;
+      }catch(_){ exists=false; }
+      if(exists){
+        document.documentElement.style.setProperty('--anime-wallpaper', `url("${url}")`);
+        console.log('[anime-theme-wallpaper] set', url);
+      } else {
+        // fallback: проверить основной wallpaper.jpg, иначе градиент
+        try{
+          const r2=await fetch(fallback, {method:'HEAD'});
+          if(r2.ok){
+            document.documentElement.style.setProperty('--anime-wallpaper', `url("${fallback}")`);
+            console.log('[anime-theme-wallpaper] fallback to', fallback);
+          } else {
+            const builtIn = animeBuiltIn[idx % animeBuiltIn.length];
+            document.documentElement.style.setProperty('--anime-wallpaper', builtIn);
+            console.log('[anime-theme-wallpaper] fallback built-in');
+          }
+        }catch(_){
+          const builtIn = animeBuiltIn[idx % animeBuiltIn.length];
+          document.documentElement.style.setProperty('--anime-wallpaper', builtIn);
+        }
+      }
+      try{ localStorage.setItem("kadr-anime-theme-wallpaper-index", String(idx)); }catch(_){}
+    }
+    animeWallpaperBtn?.addEventListener("click", async ()=>{
+      const cur = (document.documentElement.getAttribute('data-theme')||'dark');
+      if(cur==='anime'){
         animeWallpaperIndex = (animeWallpaperIndex+1) % 15;
         applyAnimeWallpaper(animeWallpaperIndex);
         console.log('[anime-wallpaper] btn next', animeWallpaperIndex);
+      } else if(cur.startsWith("anime-")){
+        animeThemeWallpaperIndex = (animeThemeWallpaperIndex+1) % 15;
+        await applyAnimeThemeWallpaper(animeThemeWallpaperIndex);
+        console.log('[anime-theme-wallpaper] btn next', animeThemeWallpaperIndex, cur);
       }
     });
     setInterval(()=>{
