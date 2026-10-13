@@ -4301,13 +4301,16 @@ const clipCache = new Map();
       : mode;
     // applyPreset handles CSS variables and data-theme per spec: Dark/Light/Cyberpunk #0a0e27 #00ffff #ff00ff neon / Samurai #1a1410 #c9a961 #8b0000 serif / Dragon #1a0f0f #d4af37 #7b1a1a scale
     function applyPreset(preset, persist=true){
-      if(!presets.includes(preset)) return;
+      console.log('[theme] applyPreset', preset, 'persist', persist);
+      if(!presets.includes(preset)) { console.log('[theme] unknown preset', preset); return; }
       themeMode = preset;
       let effective = preset;
       if(preset==="auto") effective = themeForMode("auto");
+      console.log('[theme] effective', effective, 'before', document.documentElement.getAttribute('data-theme'));
       // map preset to data-theme value — apply to html and body
       document.documentElement.setAttribute("data-theme", effective);
       try { document.body && document.body.setAttribute("data-theme", effective); } catch(_){}
+      console.log('[theme] data-theme set', document.documentElement.getAttribute('data-theme'), 'body', document.body.getAttribute('data-theme'));
       // store
       if(persist){ try{ localStorage.setItem(presetKey, preset); localStorage.setItem(themeModeStorageKey, preset); }catch(_){} }
       // update UI highlights
@@ -4321,6 +4324,7 @@ const clipCache = new Map();
       }
       // apply theme to ensure glass/opacity etc
       applyTheme(effective);
+      console.log('[theme] after applyTheme', effective, 'html[data-theme='+document.documentElement.getAttribute('data-theme')+']');
       // for cyberpunk neon, samurai serif, dragon scale: applyPreset already set data-theme so CSS takes effect
       // trigger repaint
     }
