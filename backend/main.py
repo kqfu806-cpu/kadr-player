@@ -1187,6 +1187,46 @@ async def api_wave_debug() -> dict[str, Any]:
     result["time"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
     return result
 
+@app.post("/api/wave/search-internet")
+async def api_wave_search_internet(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """ЗАДАЧА3: принудительный YouTube-поиск по топ-5 артистам из истории"""
+    if not library:
+        raise HTTPException(400, "Сначала выберите папку с музыкой")
+    count = 10
+    try:
+        if body and "count" in body:
+            count = max(1, min(10, int(body["count"])))
+    except: pass
+    # проверка yt доступность
+    try:
+        yt_ok, yt_detail = wave_engine._yt_available()
+        if not yt_ok:
+            raise HTTPException(503, f"YouTube-поиск недоступен, проверь интернет: {yt_detail[:200]}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(503, f"YouTube-поиск недоступен: {type(e).__name__}: {e}")
+    # получить play_map
+    try:
+        # wave_engine._listening_data возвращает play_map, signal_map
+        play_map, _ = wave_engine._listening_data()
+    except Exception:
+        play_map = {}
+    tracks = list(library.values())
+    known = {(tr.artist.casefold().strip(), tr.title.casefold().strip()) for tr in tracks}
+    excluded: set[str] = set()
+    try:
+        # пробуем собрать seed из истории, затем yt search
+        items = await wave_engine._youtube_fallback_tracks(tracks, known, play_map, None, count, excluded, None, None)
+        if not items:
+            raise HTTPException(503, "YouTube-поиск недоступен, проверь интернет: yt-dlp вернул 0 треков")
+        return {"items": items, "count": len(items), "source": "youtube"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        raise HTTPException(500, f"YouTube поиск упал: {type(e).__name__}: {e}\n{traceback.format_exc()[:800]}")
+
 @app.post("/api/wave/signal")
 async def api_wave_signal(body: dict[str, Any]) -> dict[str, Any]:
     track_id = str(body.get("track_id") or "").strip()

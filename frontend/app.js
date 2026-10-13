@@ -2048,6 +2048,40 @@ const clipCache = new Map();
     const expanded = panel.classList.toggle("hidden") === false;
     $("waveSettingsToggle").setAttribute("aria-expanded", String(expanded));
   });
+  // ЗАДАЧА3: кнопка Искать в интернете — принудительный YouTube поиск
+  document.getElementById("waveForceInternet")?.addEventListener("click", async () => {
+    const btn = document.getElementById("waveForceInternet");
+    if(btn) btn.disabled = true;
+    toast("Ищу в интернете...");
+    console.log("[wave] force internet search start");
+    try {
+      const res = await api("/api/wave/search-internet", {method:"POST", body: JSON.stringify({count:10})});
+      const items = res.items || [];
+      console.log("[wave] force internet got", items.length, res);
+      if(!items.length){
+        toast("YouTube-поиск недоступен, проверь интернет");
+        return;
+      }
+      const list = document.getElementById("waveQueueList");
+      if(list) list.innerHTML="";
+      document.getElementById("waveQueueSection")?.classList.remove("hidden");
+      setActiveSection("wave");
+      for(const it of items){
+        try{ renderWaveQueueItem(it); }catch(e){ console.warn("render wave item fail", e); }
+      }
+      toast(`Найдено ${items.length} треков из YouTube`);
+    } catch(e){
+      console.error("[wave] force internet fail", e);
+      const msg = String(e.message||"");
+      if(msg.includes("503") || msg.includes("недоступен") || msg.includes("YouTube")){
+        toast("YouTube-поиск недоступен, проверь интернет");
+      } else {
+        toast("Ошибка поиска: " + msg.slice(0,120));
+      }
+    } finally {
+      if(btn) btn.disabled = false;
+    }
+  });
   function saveWaveSettings() {
     state.waveMood = $("waveMood").value;
     state.waveLanguage = $("waveLanguage").value;
