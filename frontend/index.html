@@ -326,17 +326,8 @@
                 </div>
               </div>
               <div class="badge" id="modeBadge">ОБЛОЖКА</div>
-              <div class="media-toolbar" id="mediaToolbar">
-                <button class="btn ghost display-mode-toggle" id="displayModeToggle" type="button" title="Режим отображения">🎬 Клип+текст</button>
-                <div class="display-modes" id="displayModes" role="group" aria-label="Режимы отображения">
-                  <button class="btn ghost" data-mode="clipLyrics" type="button">🎬 Клип+текст</button>
-                  <button class="btn ghost" data-mode="clipOnly" type="button">🎬 Только клип</button>
-                  <button class="btn ghost" data-mode="coverLyrics" type="button">🖼️ Картинка+текст</button>
-                  <button class="btn ghost" data-mode="coverOnly" type="button">🖼️ Только картинка</button>
-                  <button class="btn ghost" data-mode="lyricsOnly" type="button">📝 Только текст</button>
-                </div>
-                <button class="btn ghost karaoke-toggle" id="karaokeToggle" type="button" title="Караоке пословная подсветка">Караоке: Вкл</button>
-              </div>
+              
+
               <button class="icon-btn sm fs-btn" id="btnFs" title="На весь экран (F)">⛶</button>
               <div class="resolving hidden" id="resolving">
                 <div class="spinner"></div>
@@ -368,44 +359,35 @@
 
     <button class="icon-btn sm rail-open hidden" id="btnExpand" title="Показать список">›</button>
 
-    <!-- ЗАДАЧА5: DJ компактная панель — постоянная, над плеером, видна с библиотекой -->
-    <div id="djStrip" class="dj-strip hidden glass glare" aria-label="DJ компактная панель">
-      <div class="dj-strip-inner">
-        <section class="dj-strip-deck" data-strip-deck="A">
-          <div class="dj-strip-head"><span class="dj-strip-label">Deck A</span><span class="dj-strip-title" id="djStripATitle">—</span></div>
-          <div class="dj-strip-progress"><div class="dj-strip-progress-fill" id="djStripAProgress"></div></div>
-          <div class="dj-strip-controls">
-            <button class="icon-btn sm" id="djStripPlayA" type="button" title="Play/Pause Deck A">▶</button>
-            <div class="dj-knob-wrap small">
-              <div class="dj-knob small" id="djStripKnobA" data-strip-pitch="A" data-value="0" tabindex="0" role="slider" aria-valuemin="-10" aria-valuemax="10" aria-valuenow="0" aria-label="Pitch A"><div class="knob-pointer"></div></div>
-              <span class="dj-knob-value small" id="djStripPitchAValue">0%</span>
-            </div>
-            <input type="range" id="djStripPitchA" min="-10" max="10" value="0" step="0.5" hidden>
-          </div>
-        </section>
-        <div class="dj-strip-mixer">
-          <label class="dj-strip-xf-label">Crossfader</label>
-          <input type="range" id="djStripCrossfader" min="0" max="100" value="50" step="1" class="dj-strip-crossfader">
-          <div class="dj-strip-xf-hint"><span>A</span><span>B</span></div>
-        </div>
-        <section class="dj-strip-deck" data-strip-deck="B">
-          <div class="dj-strip-head"><span class="dj-strip-label">Deck B</span><span class="dj-strip-title" id="djStripBTitle">—</span></div>
-          <div class="dj-strip-progress"><div class="dj-strip-progress-fill" id="djStripBProgress"></div></div>
-          <div class="dj-strip-controls">
-            <button class="btn ghost sm" id="djStripLoadB" type="button" title="Загрузить трек в Deck B">Загрузить в B</button>
-            <button class="icon-btn sm" id="djStripPlayB" type="button" title="Play/Pause Deck B">▶</button>
-            <div class="dj-knob-wrap small">
-              <div class="dj-knob small" id="djStripKnobB" data-strip-pitch="B" data-value="0" tabindex="0" role="slider" aria-valuemin="-10" aria-valuemax="10" aria-valuenow="0" aria-label="Pitch B"><div class="knob-pointer"></div></div>
-              <span class="dj-knob-value small" id="djStripPitchBValue">0%</span>
-            </div>
-            <input type="range" id="djStripPitchB" min="-10" max="10" value="0" step="0.5" hidden>
-          </div>
-        </section>
-        <button class="btn ghost dj-strip-expand" id="djStripExpand" type="button" title="Развернуть полную DJ-панель">Развернуть ↗</button>
-      </div>
-    </div>
+    <div id="djStrip">
+  <div class="dj-strip-deck">
+    <span class="dj-strip-title" id="djStripTitleA">Deck A — пусто</span>
+    <button class="dj-strip-btn" id="djStripPlayA">▶</button>
+    <div class="dj-knob dj-knob-sm" data-param="stripPitchA"><div class="knob-pointer"></div></div>
+  </div>
+  <input type="range" id="djStripCrossfader" min="0" max="100" value="50" class="dj-crossfader-strip">
+  <div class="dj-strip-deck">
+    <span class="dj-strip-title" id="djStripTitleB">Deck B — пусто</span>
+    <button class="dj-strip-btn" id="djStripLoadB">Загрузить в B</button>
+    <button class="dj-strip-btn" id="djStripPlayB">▶</button>
+  </div>
+  <button class="dj-strip-btn" id="djStripExpand" title="Развернуть">⛶</button>
+</div>
 
-    <footer class="player glass glare">
+<footer class="player glass glare">
+  <!-- БАГ6: перенесено в нижнюю панель — часть flex-контейнера player -->
+  <div class="media-toolbar" id="mediaToolbar">
+                <button class="btn ghost display-mode-toggle" id="displayModeToggle" type="button" title="Режим отображения">🎬 Клип+текст</button>
+                <div class="display-modes" id="displayModes" role="group" aria-label="Режимы отображения">
+                  <button class="btn ghost" data-mode="clipLyrics" type="button">🎬 Клип+текст</button>
+                  <button class="btn ghost" data-mode="clipOnly" type="button">🎬 Только клип</button>
+                  <button class="btn ghost" data-mode="coverLyrics" type="button">🖼️ Картинка+текст</button>
+                  <button class="btn ghost" data-mode="coverOnly" type="button">🖼️ Только картинка</button>
+                  <button class="btn ghost" data-mode="lyricsOnly" type="button">📝 Только текст</button>
+                </div>
+                <button class="btn ghost karaoke-toggle" id="karaokeToggle" type="button" title="Караоке пословная подсветка">Караоке: Вкл</button>
+              </div>
+
       <audio id="audio" preload="metadata" crossorigin="anonymous"></audio>
 
       <div class="player-left">

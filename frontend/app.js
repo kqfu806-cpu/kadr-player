@@ -2920,6 +2920,164 @@ const clipCache = new Map();
 
   })();
 
+  // БАГ5: DJ компактная полоска #djStrip — точное поведение по ТЗ
+  (function(){
+    const strip = document.getElementById("djStrip");
+    const btnDJ2 = document.getElementById("btnDJ");
+    const expand = document.getElementById("djStripExpand");
+    const playA = document.getElementById("djStripPlayA");
+    const playB = document.getElementById("djStripPlayB");
+    const loadB = document.getElementById("djStripLoadB");
+    const cross = document.getElementById("djStripCrossfader");
+    const titleA = document.getElementById("djStripTitleA");
+    const titleB = document.getElementById("djStripTitleB");
+    const knobA = document.querySelector('[data-param="stripPitchA"]');
+    const audioMain = document.getElementById("audio");
+    let audioB2 = document.getElementById("audioB");
+    if(!audioB2){
+      audioB2 = document.createElement("audio");
+      audioB2.id = "djStripAudioB";
+      audioB2.preload = "metadata";
+      audioB2.style.display = "none";
+      document.body.appendChild(audioB2);
+    }
+    if(!strip) return;
+    // btnDJ уже тогглит в DJ IIFE (toggleStrip), не дублируем чтобы не двойной toggle; только восстанавливаем видимость если IIFE не успел
+    try{
+      const v = localStorage.getItem("kadr-dj-strip-visible");
+      if(v==="1" && strip.classList.contains("hidden")){ /* уже восстановлено в IIFE */ }
+      else if(v==="0" && !strip.classList.contains("hidden")){ /* already */ }
+    }catch(_){}
+    expand?.addEventListener("click", ()=>{
+      const panel = document.getElementById("djPanel");
+      if(panel) panel.classList.remove("hidden");
+    });
+    // Title sync via MutationObserver on nowArtist/nowTitle
+    function syncTitleA(){
+      try{
+        const tA = document.getElementById("nowTitle");
+        const tAr = document.getElementById("nowArtist");
+        if(titleA){
+          const cur = (typeof currentTrack==="function"? currentTrack(): null);
+          if(cur) titleA.textContent = `Deck A — ${cur.artist} — ${cur.title}`;
+          else if(tA && tAr) titleA.textContent = `Deck A — ${tAr.textContent||""} — ${tA.textContent||""}`.replace(/ —  — /," — ").trim() || "Deck A — пусто";
+          else titleA.textContent = "Deck A — пусто";
+        }
+      }catch(_){}
+    }
+    function syncTitleB(){
+      try{
+        if(!titleB) return;
+        const deckBTrack = (window.__dj && window.__dj.deckState && window.__dj.deckState.B && window.__dj.deckState.B.track) ? window.__dj.deckState.B.track : null;
+        if(deckBTrack) titleB.textContent = `Deck B — ${deckBTrack.artist||""} — ${deckBTrack.title||deckBTrack.id||""}`.replace(/ —  — /," — ").trim();
+        else titleB.textContent = "Deck B — пусто";
+      }catch(_){}
+    }
+    try{
+      const na = document.getElementById("nowArtist");
+      const nt = document.getElementById("nowTitle");
+      if(na) new MutationObserver(syncTitleA).observe(na, {childList:true, characterData:true, subtree:true});
+      if(nt) new MutationObserver(syncTitleA).observe(nt, {childList:true, characterData:true, subtree:true});
+    }catch(_){}
+    // also poll for deck B changes
+    setInterval(()=>{ syncTitleA(); syncTitleB(); }, 800);
+    syncTitleA(); syncTitleB();
+    // PlayA controls main audio
+    playA?.addEventListener("click", ()=>{
+      try{
+        const am = document.getElementById("audio");
+        if(!am) return;
+        if(am.paused) am.play().catch(()=>{});
+        else am.pause();
+      }catch(_){}
+    });
+    // PlayB controls second audio
+    playB?.addEventListener("click", async ()=>{
+      try{
+        if(!audioB2.src){
+          // if no src, try to load from deckState B or prompt
+          if(window.__dj && window.__dj.deckState && window.__dj.deckState.B && window.__dj.deckState.B.track){
+            const t = window.__dj.deckState.B.track;
+            const src = t.path ? `/api/stream/${t.id}` : "";
+            if(src) audioB2.src = src;
+          }
+          if(!audioB2.src) return;
+        }
+        if(audioB2.paused) await audioB2.play();
+        else audioB2.pause();
+      }catch(e){}
+    });
+    // LoadB opens library for Deck B
+    loadB?.addEventListener("click", ()=>{
+      try{
+        if(window.__dj && window.__dj.openDjLibrary) window.__dj.openDjLibrary("B");
+        else {
+          const lib = document.getElementById("djLibraryModal");
+          if(lib) lib.classList.remove("hidden");
+          else if(window.__dj) window.__dj.openDjLibrary("B");
+        }
+      }catch(_){}
+    });
+    // Crossfader equal-power
+    function updateCross(){
+      const v = Number(cross?.value||50)/100;
+      const gA = Math.cos(v * Math.PI/2);
+      const gB = Math.sin(v * Math.PI/2);
+      try{
+        const am = document.getElementById("audio");
+        if(am) am.volume = Math.max(0, Math.min(1, gA * (Number.isFinite(parseFloat(localStorage.getItem('kadr-volume')))? parseFloat(localStorage.getItem('kadr-volume')):0.85)));
+      }catch(_){}
+      try{ if(audioB2) audioB2.volume = Math.max(0, Math.min(1, gB)); }catch(_){}
+      // also sync with main DJ crossfader if exists
+      try{
+        const mainCross = document.getElementById("crossfader");
+        if(mainCross && mainCross.value !== String(cross.value)) { mainCross.value = String(cross.value); mainCross.dispatchEvent(new Event("input",{bubbles:true})); }
+      }catch(_){}
+    }
+    cross?.addEventListener("input", updateCross);
+    // also sync main cross -> strip
+    try{ document.getElementById("crossfader")?.addEventListener("input", ()=>{ if(cross) cross.value = document.getElementById("crossfader").value; }); }catch(_){}
+    // Pitch knob stripPitchA -> audio.playbackRate
+    (function(){
+      if(!knobA) return;
+      const audioEl = document.getElementById("audio");
+      if(!audioEl) return;
+      let val = 0;
+      function apply(v){
+        val = Math.max(-10, Math.min(10, v));
+        knobA.dataset.value = String(val);
+        const angle = -135 + (val+10)/20 * 270;
+        knobA.style.transform = `rotate(${angle}deg)`;
+        knobA.setAttribute("aria-valuenow", String(val));
+        try{ audioEl.playbackRate = 1 + val/100; }catch(_){}
+      }
+      // try to find hidden input or use knob dataset
+      // drag handling
+      let startY=0,startVal=0,drag=false;
+      knobA.addEventListener("mousedown", e=>{
+        e.preventDefault(); drag=true; startY=e.clientY; startVal=val;
+        document.addEventListener("mousemove", onM);
+        document.addEventListener("mouseup", onU);
+      });
+      knobA.addEventListener("touchstart", e=>{
+        const t=e.touches[0]; drag=true; startY=t.clientY; startVal=val;
+        document.addEventListener("touchmove", onT, {passive:false});
+        document.addEventListener("touchend", onTE);
+      }, {passive:false});
+      function onM(e){ if(!drag) return; const d=startY-e.clientY; let v=startVal + d*0.1; v=Math.round(v*2)/2; apply(v); }
+      function onU(){ drag=false; document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); }
+      function onT(e){ if(!drag) return; e.preventDefault(); const t=e.touches[0]; const d=startY-t.clientY; let v=startVal + d*0.1; v=Math.round(v*2)/2; apply(v); }
+      function onTE(){ drag=false; document.removeEventListener("touchmove", onT); document.removeEventListener("touchend", onTE); }
+      knobA.addEventListener("keydown", e=>{
+        if(e.key==="ArrowUp"||e.key==="ArrowRight"){ apply(val+0.5); e.preventDefault(); }
+        else if(e.key==="ArrowDown"||e.key==="ArrowLeft"){ apply(val-0.5); e.preventDefault(); }
+      });
+      knobA.tabIndex = 0;
+      apply(0);
+    })();
+    // ensure strip does not overlap player — already sticky bottom 0 above player (player is below strip in DOM, strip sticky will stay above)
+  })();
+
   // ---------- модалка выбора папки ----------
   let fsPath = "";
 
