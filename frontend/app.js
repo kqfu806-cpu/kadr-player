@@ -5,6 +5,20 @@
 
   const $ = (id) => document.getElementById(id);
   // TASK5: перехватить console.error и window.onerror → POST /api/log/client-error
+  // БАГ3: 403 на обложки Deezer/Last.fm — глобальный fallback на ♪ SVG, если хотлинк блокируется
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (img && img.tagName === 'IMG' && !img.dataset.fallbackDone) {
+      const src = img.getAttribute('src') || '';
+      // только для обложек, которые грузят с cdn (dzcdn, lastfm, mzstatic, 250x250)
+      if (src.includes('dzcdn.net') || src.includes('lastfm') || src.includes('freetls.fastly.net') || src.includes('mzstatic.com') || src.includes('250x250') || src.includes('cover')) {
+        img.dataset.fallbackDone = '1';
+        img.onerror = null;
+        img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect fill='%230f0a1a' width='200' height='200'/><text x='100' y='110' font-size='80' fill='%23ff6b9d' text-anchor='middle'>♪</text></svg>";
+        console.log('[cover] fallback for', src.slice(0,80));
+      }
+    }
+  }, true);
   (function(){
     try {
       const origError = console.error;
@@ -32,6 +46,13 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  function coverFallback(img){
+    if(!img || img.dataset.fallbackDone) return;
+    img.dataset.fallbackDone='1';
+    img.onerror=null;
+    img.src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect fill='%230f0a1a' width='200' height='200'/><text x='100' y='110' font-size='80' fill='%23ff6b9d' text-anchor='middle'>♪</text></svg>";
+  }
+
 
   const favoritesKey = "kadr-favorites";
   const followedArtistsKey = "kurymdyk-followed-artists";
@@ -320,6 +341,14 @@ const clipCache = new Map();
   const seek = $("seek");
   const vol = $("vol");
   $("coverImg").addEventListener("error", () => {
+    const img = $("coverImg");
+    if (img && !img.dataset.fallbackDone) {
+      img.dataset.fallbackDone = '1';
+      img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><rect fill='%230f0a1a' width='200' height='200'/><text x='100' y='110' font-size='80' fill='%23ff6b9d' text-anchor='middle'>♪</text></svg>";
+      img.style.visibility = "visible";
+      console.log('[cover] coverImg fallback 403');
+      return;
+    }
     $("coverImg").style.visibility = "hidden";
   });
   $("coverImg").addEventListener("load", () => {

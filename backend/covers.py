@@ -75,7 +75,7 @@ async def _download(client: httpx.AsyncClient, url: str, dest: Path) -> Path | N
     try:
         r = await client.get(
             url,
-            headers={"User-Agent": USER_AGENT, "Accept": "image/*,*/*"},
+            headers={"User-Agent": USER_AGENT, "Accept": "image/*,*/*", "Referer": "https://www.deezer.com/"},
             timeout=COVER_TIMEOUT,
             follow_redirects=True,
         )
@@ -230,7 +230,7 @@ async def search_musicbrainz_cover(
         try:
             head = await client.get(
                 url,
-                headers={"User-Agent": USER_AGENT, "Accept": "image/*,*/*"},
+                headers={"User-Agent": USER_AGENT, "Accept": "image/*,*/*", "Referer": "https://www.deezer.com/"},
                 timeout=COVER_TIMEOUT,
                 follow_redirects=True,
             )
@@ -390,9 +390,18 @@ async def proxy_cover(
             mime = "image/png" if ext == ".png" else "image/webp" if ext == ".webp" else "image/jpeg"
             return p.read_bytes(), mime
     try:
+        # БАГ3: 403 на Deezer/Last.fm CDN — добавляем Referer чтобы обойти хотлинк-блок
+        headers = {"User-Agent": _BROWSER_UA, "Accept": "image/avif,image/webp,image/*,*/*", "Referer": "https://www.deezer.com/"}
+        # для Last.fm CDN — Referer www.last.fm
+        if "lastfm" in url or "freetls.fastly.net" in url or "last.fm" in url:
+            headers["Referer"] = "https://www.last.fm/"
+        elif "dzcdn.net" in url or "deezer" in url:
+            headers["Referer"] = "https://www.deezer.com/"
+        elif "mzstatic.com" in url:
+            headers["Referer"] = "https://music.apple.com/"
         r = await client.get(
             url,
-            headers={"User-Agent": _BROWSER_UA, "Accept": "image/avif,image/webp,image/*,*/*"},
+            headers=headers,
             timeout=8.0,
             follow_redirects=True,
         )
