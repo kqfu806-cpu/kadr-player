@@ -480,6 +480,18 @@ const clipCache = new Map();
     }
     return r.json();
   }
+  // ЗАДАЧА2: retry с подавлением ERR_CONNECTION_REFUSED пока сервер стартует
+  async function apiRetry(path, opts, retries=5, delay=3000){
+    for(let i=0;i<retries;i++){
+      try{ return await api(path, opts); }
+      catch(e){
+        const isConn = String(e.message).includes("Failed to fetch") || String(e.message).includes("NetworkError") || e.name==="TypeError" || String(e).includes("ERR_CONNECTION_REFUSED");
+        if(i===retries-1) throw e;
+        console.warn(`[apiRetry] ${path} попытка ${i+1}/${retries} упала:`, e.message, `повтор через ${delay}ms`);
+        await new Promise(r=>setTimeout(r, delay));
+      }
+    }
+  }
 
   function setActiveSection(section) {
     state.activeSection = section;
@@ -1221,7 +1233,7 @@ const clipCache = new Map();
 
   async function loadWaveLikes() {
     try {
-      const result = await api("/api/wave/likes");
+      const result = await apiRetry("/api/wave/likes", undefined, 5, 3000);
       state.likedTracks = new Set(result.track_ids || []);
       syncFavoriteControls();
     } catch (error) {
@@ -2215,7 +2227,7 @@ const clipCache = new Map();
   // ---------- библиотека / папка ----------
   async function loadHealth(quiet) {
     try {
-      const h = await api("/api/health");
+      const h = await apiRetry("/api/health", undefined, 5, 3000);
       setOllamaPill(h.ollama);
       if (h.ollama && !h.ollama.online && !state._ollamaWarned) {
         state._ollamaWarned = true;
@@ -5019,7 +5031,7 @@ const clipCache = new Map();
       if(!el) return;
       async function refreshNetwork(){
         try{
-          const st = await api("/api/network/status");
+          const st = await apiRetry("/api/network/status", undefined, 5, 3000);
           const services = ["lastfm","deezer","itunes"];
           const labels = {lastfm:"Last.fm", deezer:"Deezer", itunes:"iTunes"};
           const downs = services.filter(k=> st[k]==="down");
