@@ -2235,7 +2235,7 @@ html[data-theme="dragon"] .app-bg::before {
   .display-modes { top: 0.5rem; flex-wrap: wrap; justify-content: center; gap: 0.5rem; max-width: 96vw; }
   .display-modes .btn { font-size: 0.62rem; padding: 0.25rem 0.45rem; }
 }
-/* БАГ7: караоке не наслаивается — flex-контейнер вместо двух absolute */
+/* БАГ4/БАГ7: караоке не наслаивается — flex-контейнер вместо двух absolute — караоке и displayModes внутри .media-toolbar, все в одном ряду, wrap */
 .media-toolbar {
   position: absolute;
   left: 50%;
