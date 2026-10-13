@@ -2469,8 +2469,8 @@ const clipCache = new Map();
 
     const djStrip = document.getElementById("djStrip");
     const djStripExpand = document.getElementById("djStripExpand");
-    function openDJ(){ djPanel.classList.remove("hidden"); }
-    function closeDJ(){ djPanel.classList.add("hidden"); }
+    function openDJ(){ djPanel.classList.remove("hidden"); try{ if(djStrip && !djStrip.classList.contains("hidden")){ djStrip.dataset.wasVisible="1"; djStrip.classList.add("hidden"); } }catch(_){} }
+    function closeDJ(){ djPanel.classList.add("hidden"); try{ const v=localStorage.getItem("kadr-dj-strip-visible"); if(v!=="0" && djStrip){ djStrip.classList.remove("hidden"); } }catch(_){} }
     function toggleStrip(){
       if(!djStrip){ openDJ(); return; }
       const hidden = djStrip.classList.toggle("hidden");
@@ -2478,7 +2478,16 @@ const clipCache = new Map();
       btnDJ.classList.toggle("on", !hidden);
       btnDJ.setAttribute("aria-pressed", String(!hidden));
     }
-    try{ if(localStorage.getItem("kadr-dj-strip-visible")==="1"){ djStrip?.classList.remove("hidden"); btnDJ.classList.add("on"); btnDJ.setAttribute("aria-pressed","true"); } }catch(_){}
+    // TASK1: default shown, header 🎧 toggle with localStorage
+    try{
+      const v=localStorage.getItem("kadr-dj-strip-visible");
+      if(v==="0"){ djStrip?.classList.add("hidden"); btnDJ.classList.remove("on"); btnDJ.setAttribute("aria-pressed","false"); }
+      else {
+        // default shown (null) or "1"
+        djStrip?.classList.remove("hidden"); btnDJ.classList.add("on"); btnDJ.setAttribute("aria-pressed","true");
+        if(v===null) try{ localStorage.setItem("kadr-dj-strip-visible","1"); }catch(_){}
+      }
+    }catch(_){}
     btnDJ.addEventListener("click", toggleStrip);
     djStripExpand?.addEventListener("click", openDJ);
     djClose?.addEventListener("click", closeDJ);
@@ -2938,11 +2947,11 @@ const clipCache = new Map();
       document.body.appendChild(audioB2);
     }
     if(!strip) return;
-    // btnDJ уже тогглит в DJ IIFE (toggleStrip), не дублируем чтобы не двойной toggle; только восстанавливаем видимость если IIFE не успел
+    // btnDJ уже тогглит в DJ IIFE (toggleStrip), не дублируем чтобы не двойной toggle; только восстанавливаем видимость если IIFE не успел — default shown
     try{
       const v = localStorage.getItem("kadr-dj-strip-visible");
-      if(v==="1" && strip.classList.contains("hidden")){ /* уже восстановлено в IIFE */ }
-      else if(v==="0" && !strip.classList.contains("hidden")){ /* already */ }
+      if(v==="0"){ strip.classList.add("hidden"); btnDJ2?.classList.remove("on"); btnDJ2?.setAttribute("aria-pressed","false"); }
+      else if(v==="1" || v===null){ strip.classList.remove("hidden"); btnDJ2?.classList.add("on"); btnDJ2?.setAttribute("aria-pressed","true"); if(v===null) try{ localStorage.setItem("kadr-dj-strip-visible","1"); }catch(_){} }
     }catch(_){}
     expand?.addEventListener("click", ()=>{
       const panel = document.getElementById("djPanel");
