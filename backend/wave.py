@@ -567,33 +567,60 @@ async def recommend(
             _last_recommend_attempt["stacktrace"] = traceback.format_exc()
             remote = []
             remote_before = 0
-        if not remote:
-            log.warning("wave fallback: Last.fm/Deezer unavailable mode=%s, will fallback to local", mode)
-            # ЗАДАЧА1: если _new_tracks вернул пусто — логируем причину
-            reason = _last_recommend_attempt.get("lastfm_error") or "lastfm_returned_empty"
-            log.info("wave fallback reason=%s remote_before=%d", reason, remote_before)
-            _last_recommend_attempt["fallback_reason"] = reason
-            # TASK8: пробуем бесплатный YouTube Music через yt-dlp перед локальным фолбэком
+        # ЗАДАЧА2: фикс логики fallback — добавляем YouTube, не заменяем, <50% → добавляем
+        need_youtube = False
+        youtube_reason = None
+        target = count if mode == "new" else round(count * 0.4)
+        if _last_recommend_attempt.get("lastfm_error"):
+            need_youtube = True
+            youtube_reason = f"lastfm_error: {_last_recommend_attempt['lastfm_error']}"
+        elif len(remote) == 0:
+            need_youtube = True
+            youtube_reason = "lastfm_returned_empty"
+        elif len(remote) < target * 0.5:
+            need_youtube = True
+            youtube_reason = f"lastfm_partial {len(remote)}/{target} <50%"
+        if need_youtube:
+            log.info("wave youtube fallback needed reason=%s remote_before=%d target=%d", youtube_reason, len(remote), target)
+            _last_recommend_attempt["fallback_reason"] = youtube_reason
             yt_attempted = True
             try:
-                yt_tracks = await _youtube_fallback_tracks(tracks, {(tr.artist.casefold().strip(), tr.title.casefold().strip()) for tr in tracks}, play_map, lastfm, max(1, count - len(remote)), excluded, mood_filter, language_filter)
+                need = max(1, target - len(remote))
+                yt_tracks = await _youtube_fallback_tracks(tracks, {(tr.artist.casefold().strip(), tr.title.casefold().strip()) for tr in tracks} | {(r.get("artist","").casefold(), r.get("title","").casefold()) for r in remote}, play_map, lastfm, need, excluded, mood_filter, language_filter)
                 yt_returned = len(yt_tracks) if yt_tracks else 0
-                log.info("wave youtube fallback attempted count=%d returned=%d", max(1, count - len(remote)), yt_returned)
-                if yt_returned == 0:
-                    log.info("wave youtube fallback returned [] — query seeds=%s", [t.artist for t in tracks[:3]])
+                log.info("wave youtube fallback attempted need=%d returned=%d reason=%s", need, yt_returned, youtube_reason)
                 _last_recommend_attempt["yt_attempted"] = True
                 _last_recommend_attempt["yt_returned"] = yt_returned
+                if yt_returned == 0:
+                    log.info("wave youtube fallback returned [] — youtube_reason=%s seeds=%s", youtube_reason, [t.artist for t in tracks[:3]])
+                    _last_recommend_attempt["yt_returned_empty"] = "yt_returned_empty"
+                    if yt_tracks is not None and len(yt_tracks)==0:
+                        log.warning("wave yt_returned_empty query=%s reason=%s", [t.artist for t in tracks[:3]], youtube_reason)
                 if yt_tracks:
-                    remote = yt_tracks
-                    log.info("wave youtube fallback produced %s tracks mode=%s", len(remote), mode)
-                    final_source = "youtube"
+                    # ДОБАВЛЯЕМ, не заменяем (если remote уже частично есть)
+                    if remote:
+                        remote = remote + yt_tracks
+                        log.info("wave youtube fallback added %d tracks to %d existing (mixed) mode=%s", len(yt_tracks), remote_before, mode)
+                        final_source = "mixed_lastfm_youtube"
+                    else:
+                        remote = yt_tracks
+                        log.info("wave youtube fallback produced %s tracks mode=%s (replaced empty)", len(remote), mode)
+                        final_source = "youtube"
                 else:
                     log.info("wave youtube fallback empty, will go to local")
                     final_source = "local_after_youtube_empty"
+                    _last_recommend_attempt["youtube_empty_reason"] = "yt_returned_empty"
             except Exception as e:
-                log.exception("youtube fallback failed mode=%s: %s\n%s", mode, type(e).__name__, traceback.format_exc())
+                log.exception("youtube fallback failed mode=%s reason=%s: %s\n%s", mode, youtube_reason, type(e).__name__, traceback.format_exc())
                 _last_recommend_attempt["yt_error"] = f"{type(e).__name__}: {e}"
                 yt_returned = 0
+        else:
+            # если remote достаточно (>=50%) — youtube не нужен
+            log.info("wave no youtube needed remote=%d target=%d >=50%%", len(remote), target)
+            final_source = "lastfm_deezer"
+            _last_recommend_attempt["fallback_reason"] = "no_fallback_needed"
+            _last_recommend_attempt["yt_attempted"] = False
+            _last_recommend_attempt["yt_returned"] = 0
     else:
         if mode in {"new","mix"} and not lastfm:
             log.warning("wave no lastfm client mode=%s, fallback to local", mode)
