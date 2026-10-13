@@ -1453,6 +1453,7 @@ const clipCache = new Map();
   }
 
   function onEnded() {
+    console.log('[player] onEnded shuffle:', state.shuffle, 'repeat:', state.repeat);
     if (state.repeat === "one") {
       if (state.mode === "youtube" && state.yt) {
         state.yt.seekTo(0);
@@ -1472,6 +1473,7 @@ const clipCache = new Map();
   }
 
   function next(fromEnded) {
+    console.log('[player] next called shuffle:', state.shuffle, 'repeat:', state.repeat, 'fromEnded:', fromEnded, 'index:', state.index, 'len:', state.tracks.length);
     if (state.waveMode) {
       if (!fromEnded) sendWaveSignal("skip");
       playWaveNext();
@@ -1500,6 +1502,7 @@ const clipCache = new Map();
           i = Math.floor(Math.random() * state.tracks.length);
         } while (i === state.index && state.tracks.length > 1);
       }
+      console.log('[player] shuffle pick:', i, 'prev:', state.index);
     } else {
       i = state.index + 1;
       if (i >= state.tracks.length) {
@@ -1900,12 +1903,14 @@ const clipCache = new Map();
   $("btnShuffle").addEventListener("click", () => {
     state.shuffle = !state.shuffle;
     $("btnShuffle").classList.toggle("on", state.shuffle);
+    console.log('[player] shuffle:', state.shuffle);
   });
   $("btnRepeat").addEventListener("click", () => {
     state.repeat = state.repeat === "off" ? "all" : state.repeat === "all" ? "one" : "off";
     $("btnRepeat").classList.toggle("on", state.repeat !== "off");
     $("btnRepeat").title =
       state.repeat === "one" ? "Повтор трека" : state.repeat === "all" ? "Повтор плейлиста" : "Повтор выключен";
+    console.log('[player] repeat:', state.repeat);
   });
   $("btnMute").addEventListener("click", () => {
     state.muted = !state.muted;
