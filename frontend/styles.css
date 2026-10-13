@@ -1221,18 +1221,49 @@ input[type="range"]::-webkit-slider-thumb {
 .icon-btn.sm { width: 2rem; height: 2rem; border-radius: 0.7rem; }
 .icon-btn.on { color: var(--accent); background: rgba(255,255,255,0.14); }
 
+/* ЗАДАЧА7: мини-плеер — используем пустое место справа: трек инфо + кнопки в один ряд компактно */
 .player-right {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   justify-content: center;
+  gap: 0.3rem;
+  min-width: 0;
 }
+.player-right-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.player-right-track {
+  min-width: 0;
+  flex: 1;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.player-right-artist { font-weight: 650; color: var(--text); }
+.player-right-album { color: var(--muted); }
+.player-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  flex: 0 0 auto;
+}
+.player-right-actions .icon-btn.sm { width: 1.9rem; height: 1.9rem; }
 .vol {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   width: min(100%, 12rem);
 }
+.vol.compact { gap: 0.32rem; width: auto; }
+.vol.compact input { width: 5.2rem; }
+.vol-value { font-size: 0.66rem; color: var(--muted); min-width: 2rem; text-align: right; font-variant-numeric: tabular-nums; }
 .vol input { flex: 1; }
 
 .modal {

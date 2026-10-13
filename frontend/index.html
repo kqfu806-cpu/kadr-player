@@ -429,9 +429,6 @@
               <button class="icon-btn sm like-btn" id="btnLike" type="button" title="Нравится" aria-label="Нравится" aria-pressed="false" disabled>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v10H4V10h3Zm3 10h7.2a2 2 0 0 0 1.95-1.56l1.6-7A2 2 0 0 0 18.8 9H14l.7-3.4A2.1 2.1 0 0 0 12.6 3L8 9v11Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>
               </button>
-              <button class="icon-btn sm favorite-btn" id="btnFavorite" type="button" title="В избранное" aria-label="Добавить в избранное" aria-pressed="false" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-              </button>
               <button class="icon-btn sm dislike-btn" id="btnDislike" type="button" title="Не рекомендовать" aria-label="Не рекомендовать этот трек" disabled>⊘</button>
             </div>
             <div class="now-artist" id="nowArtist">Выберите трек</div>
@@ -453,9 +450,6 @@
           <span id="durTime">0:00</span>
         </div>
         <div class="controls">
-          <button class="icon-btn" id="btnShuffle" title="Перемешать">
-            <svg viewBox="0 0 24 24"><path d="M4 7h4l2 3M4 17h4l2-3M14 7h6M14 17h6M17 4l3 3-3 3M17 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-          </button>
           <button class="icon-btn" id="btnPrev" title="Предыдущий (←)">
             <svg viewBox="0 0 24 24"><path d="M18 6v12L8 12zM6 6v12" fill="currentColor"/></svg>
           </button>
@@ -466,20 +460,37 @@
           <button class="icon-btn" id="btnNext" title="Следующий (→)">
             <svg viewBox="0 0 24 24"><path d="M6 6v12l10-6zM18 6v12" fill="currentColor"/></svg>
           </button>
-          <button class="icon-btn" id="btnRepeat" title="Повтор">
-            <svg viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M7 21l-3-3 3-3M20 6H9a5 5 0 000 10h2M4 18h11a5 5 0 000-10h-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-          </button>
         </div>
       </div>
 
       <div class="player-right">
-        <div class="now-reason muted" id="nowReason"></div>
-        <div class="vol">
-          <button class="icon-btn sm" id="btnMute" title="Звук (M)">
-            <svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4zM17 9a4 4 0 010 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-          </button>
-          <input type="range" id="vol" min="0" max="100" value="85" />
+        <!-- ЗАДАЧА7: используем пустое место справа — трек инфо + кнопки в один ряд компактно -->
+        <div class="player-right-row">
+          <div class="player-right-track" title="Исполнитель — альбом">
+            <span class="player-right-artist" id="playerRightArtist">—</span>
+            <span class="muted"> · </span>
+            <span class="player-right-album muted" id="playerRightAlbum"></span>
+          </div>
+          <div class="player-right-actions">
+            <button class="icon-btn sm" id="btnShuffle" title="Перемешать">
+              <svg viewBox="0 0 24 24"><path d="M4 7h4l2 3M4 17h4l2-3M14 7h6M14 17h6M17 4l3 3-3 3M17 14l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </button>
+            <button class="icon-btn sm" id="btnRepeat" title="Повтор (выкл → все → один)">
+              <svg viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M7 21l-3-3 3-3M20 6H9a5 5 0 000 10h2M4 18h11a5 5 0 000-10h-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </button>
+            <button class="icon-btn sm favorite-btn" id="btnFavorite" type="button" title="В избранное" aria-label="Добавить в избранное" aria-pressed="false" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="vol compact">
+              <button class="icon-btn sm" id="btnMute" title="Звук (M)">
+                <svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4H4zM17 9a4 4 0 010 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+              </button>
+              <input type="range" id="vol" min="0" max="100" value="85" />
+              <span class="vol-value" id="volValue">85%</span>
+            </div>
+          </div>
         </div>
+        <div class="now-reason muted" id="nowReason"></div>
       </div>
     </footer>
   </div>

@@ -1561,6 +1561,8 @@ const clipCache = new Map();
   function applyVolume() {
     const v = state.muted ? 0 : state.volume;
     audio.volume = v;
+    // ЗАДАЧА7: индикатор громкости с ползунком — обновляем текст
+    try{ const vv=$("volValue"); if(vv) vv.textContent = `${Math.round(v*100)}%`; }catch(_){}
     if (state.yt && state.yt.setVolume) {
       try {
         state.yt.setVolume(v * 100);
@@ -1596,6 +1598,27 @@ const clipCache = new Map();
     state.muted = state.volume === 0;
     applyVolume();
   });
+  // ЗАДАЧА7: синхронизируем правую панель — исполнитель/альбом/громкость в один ряд
+  (function syncPlayerRight(){
+    function upd(){
+      try{
+        const prA=$("playerRightArtist"), prAl=$("playerRightAlbum");
+        const na=$("nowArtist"), nal=$("nowAlbum");
+        if(prA && na) prA.textContent = na.textContent || "—";
+        if(prAl && nal) prAl.textContent = nal.textContent || "";
+        const vv=$("volValue");
+        if(vv) vv.textContent = `${Math.round((state.muted?0:state.volume)*100)}%`;
+      }catch(_){}
+    }
+    // наблюдаем изменения nowArtist/nowAlbum через MutationObserver + интервал
+    try{
+      const na=$("nowArtist"), nal=$("nowAlbum");
+      if(na){ new MutationObserver(upd).observe(na, {childList:true, characterData:true, subtree:true}); }
+      if(nal){ new MutationObserver(upd).observe(nal, {childList:true, characterData:true, subtree:true}); }
+    }catch(_){}
+    setInterval(upd, 500);
+    upd();
+  })();
 
   function tick() {
     const d = getDuration();
