@@ -1814,12 +1814,30 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .profile-image {
   width: 200px;
+  height: 200px;
   max-width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
   border-radius: 50%;
   background: var(--glass);
   box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.3);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+/* TASK6: аватарки артистов — круглые 200x200 с неоновой рамкой #ff6b9d */
+html[data-theme="anime"] .profile-image {
+  width: 200px;
+  height: 200px;
+  border: 3px solid #ff6b9d;
+  box-shadow: 0 0 0 4px rgba(255,107,157,0.22), 0 0 22px rgba(255,107,157,0.55), 0 0 36px rgba(157,124,255,0.32), 0 1rem 2rem rgba(0,0,0,0.42);
+}
+html[data-theme="anime"] .profile-image.missing {
+  border: 3px solid #ff6b9d;
+  box-shadow: 0 0 22px rgba(255,107,157,0.55), 0 0 36px rgba(0,212,255,0.22);
+}
+html[data-theme="anime"] .similar-avatar-img {
+  border: 2px solid #ff6b9d;
+  box-shadow: 0 0 12px rgba(255,107,157,0.45), 0 0 22px rgba(157,124,255,0.28);
 }
 .profile-image.missing {
   display: grid;
@@ -2536,9 +2554,27 @@ html[data-theme="anime"], [data-theme="anime"] {
   --anime-particles: radial-gradient(2px 2px at 12% 18%, rgba(255,255,255,0.8) 50%, transparent 55%);
   color-scheme: dark;
 }
+/* TASK6: Канеки Кен — обои 2560x1440, если файлы есть — покажем, иначе градиент+частицы */
 html[data-theme="anime"] body {
   background: #0f0a1a;
+  /* пробуем локальные файлы — если 404, браузер проигнорирует первый url и покажет градиент */
+  background-image:
+    url('/static/assets/anime/kaneki-2560.jpg'),
+    url('/static/assets/anime/tokyo-ghoul.jpg'),
+    url('/static/assets/anime/wallpaper.jpg'),
+    var(--anime-gradient);
+  background-size: cover, cover, cover, 400% 400%;
+  background-position: center, center, center, 0% 50%;
+  background-blend-mode: normal, normal, normal, normal;
   font-family: var(--font);
+}
+html[data-theme="anime"] body::after{
+  /* полупрозрачный overlay чтобы текст читался поверх фото */
+  content:"";
+  position:fixed; inset:0;
+  background: linear-gradient(180deg, rgba(15,10,26,0.55), rgba(15,10,26,0.78));
+  pointer-events:none;
+  z-index:0;
 }
 html[data-theme="anime"] .glass {
   background: rgba(255,255,255,0.05);
@@ -2549,6 +2585,7 @@ html[data-theme="anime"] .glass {
 }
 /* анимированный градиент фона — БАГ2: специфичность !important чтобы перебить .ambient */
 html[data-theme="anime"] .ambient {
+  /* если есть kaneki jpg, он будет нижним слоем, иначе только градиент */
   background:
     radial-gradient(45% 45% at 20% 15%, rgba(255,107,157,0.22), transparent 60%),
     radial-gradient(50% 50% at 85% 15%, rgba(0,212,255,0.20), transparent 58%),
@@ -2557,6 +2594,13 @@ html[data-theme="anime"] .ambient {
   background-size: 100% 100%, 100% 100%, 100% 100%, 400% 400% !important;
   animation: animeGradient 18s ease infinite !important;
   filter: blur(0.6rem) !important;
+}
+html[data-theme="anime"].has-kaneki .ambient{
+  background:
+    radial-gradient(45% 45% at 20% 15%, rgba(255,107,157,0.28), transparent 60%),
+    radial-gradient(50% 50% at 85% 15%, rgba(0,212,255,0.22), transparent 58%),
+    url('/static/assets/anime/kaneki-2560.jpg') center/cover no-repeat,
+    linear-gradient(125deg, #0f0a1a, #1a0f2e, #0f1a2e, #1a0f2e) !important;
 }
 @keyframes animeGradient {
   0%{background-position: 0% 50%}
@@ -2690,5 +2734,28 @@ html[data-theme="anime"] .release-cover {
  /* keep Inter — per spec do not replace font */
 html[data-theme="anime"] body, html[data-theme="anime"] { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif !important; }
 
+
+
+/* TASK6: под 2560×1440 — шрифты +10%, карточки +15% */
+@media (min-width: 2560px) {
+  html{ font-size: 110%; }
+  html[data-theme="anime"] body{ font-size: 110%; }
+  .slot, .panel, .release-card, .similar-item, .profile-section, .stats-card, .dj-card, .modal-card{
+    transform: scale(1.0);
+  }
+  /* карточки на 15% больше — через padding и font */
+  .slot{ padding: calc(0.85rem * 1.15); }
+  .panel{ padding: calc(1rem * 1.15); }
+  .release-card{ transform: scale(1.02); }
+  .profile-image{ width: 230px; height: 230px; /* 200*1.15 */ }
+  .similar-avatar-img{ width: 73px; height: 73px; /* 64*1.15 */ }
+}
+@media (min-width: 1920px) and (min-height: 1080px){
+  html[data-theme="anime"] .profile-content{ max-width: 1840px; /* 1600*1.15 */ }
+}
+@media (min-width: 2560px) and (min-height: 1440px){
+  html{ font-size: 17.6px; /* 16*1.10 */ }
+  .profile-content{ max-width: 1840px; }
+}
 
 .listening-stats.hidden { display: none !important; }
