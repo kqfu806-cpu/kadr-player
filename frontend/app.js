@@ -1979,16 +1979,47 @@ const clipCache = new Map();
     } else if (e.key === "w" || e.key === "W" || e.key === "ц" || e.key === "Ц") {
       e.preventDefault();
       startWave();
-    } else if (e.key === "m" || e.key === "M" || e.key === "ь") {
+    } else if (e.key === "m" || e.key === "M" || e.key === "ь" || e.code === "KeyM") {
+      e.preventDefault();
       state.muted = !state.muted;
       applyVolume();
+      console.log('[hotkey] KeyM mute', state.muted);
+    } else if (e.code === "KeyS" || e.key === "s" || e.key === "S" || e.key === "ы" || e.key === "Ы") {
+      e.preventDefault();
+      state.shuffle = !state.shuffle;
+      const btn = document.getElementById("btnShuffle");
+      if(btn) btn.classList.toggle("on", state.shuffle);
+      console.log('[hotkey] KeyS shuffle', state.shuffle);
+      try { localStorage.setItem('kadr-shuffle', state.shuffle ? '1':'0'); } catch(_){}
+    } else if (e.code === "KeyR" || e.key === "r" || e.key === "R" || e.key === "к" || e.key === "К") {
+      e.preventDefault();
+      state.repeat = state.repeat === "off" ? "all" : state.repeat === "all" ? "one" : "off";
+      const btn = document.getElementById("btnRepeat");
+      if(btn){
+        btn.classList.toggle("on", state.repeat !== "off");
+        btn.title = state.repeat === "one" ? "Повтор трека" : state.repeat === "all" ? "Повтор плейлиста" : "Повтор выключен";
+      }
+      console.log('[hotkey] KeyR repeat', state.repeat);
+      try { localStorage.setItem('kadr-repeat', state.repeat); } catch(_){}
     } else if (e.key === "f" || e.key === "F" || e.key === "а") {
       e.preventDefault();
       toggleFullscreen();
     } else if (e.code === "Escape" && (document.fullscreenElement || document.webkitFullscreenElement)) {
       toggleFullscreen(false);
     } else if (e.code === "Escape") {
+      // БАГ5: Esc закрывает модалки/panels/поиск
+      let closed = false;
+      try {
+        const modals = [document.getElementById('smotrisochniModal'), document.getElementById('diagnosticsModal')];
+        for(const m of modals){ if(m && !m.classList.contains('hidden')){ m.classList.add('hidden'); m.style.display='none'; closed=true; } }
+        const dj = document.getElementById('djPanel');
+        if(dj && !dj.classList.contains('hidden')){ dj.classList.add('hidden'); closed=true; }
+        const gs = document.getElementById('globalSearchResults');
+        if(gs && gs.style.display !== 'none'){ closed=true; }
+      } catch(_){}
       closeGlobalSearch();
+      if(closed) console.log('[hotkey] Escape closed modal/panel');
+      else console.log('[hotkey] Escape');
     }
   });
 
