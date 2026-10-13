@@ -1117,6 +1117,76 @@ async def api_wave_next(
     return result
 
 
+@app.get("/api/wave/debug")
+async def api_wave_debug() -> dict[str, Any]:
+    """ЗАДАЧА1: диагностика волны — проверяет все источники"""
+    import time, traceback, asyncio, json, subprocess, shutil, sys
+    from pathlib import Path as _P
+    result: dict[str, Any] = {}
+    # lastfm_client bool
+    try:
+        result["lastfm_client"] = lastfm_client is not None
+        result["lastfm_client_detail"] = f"client exists: {lastfm_client is not None}, has lastfm_client.client: {getattr(lastfm_client, 'client', None) is not None}"
+    except Exception as e:
+        result["lastfm_client"] = False
+        result["lastfm_client_detail"] = f"{type(e).__name__}: {e}"
+    # lastfm_test artist.getSimilar Кишлак
+    try:
+        if lastfm_client is None:
+            result["lastfm_test"] = {"ok": False, "count": 0, "error": "no client"}
+        else:
+            # ensure http_client set
+            try:
+                similar = await lastfm_client.get_similar_artists("Кишлак", limit=5)
+                result["lastfm_test"] = {"ok": True, "count": len(similar), "artists": [a.get("name") for a in similar[:5]], "error": None}
+            except Exception as e:
+                result["lastfm_test"] = {"ok": False, "count": 0, "error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[:1200]}
+    except Exception as e:
+        result["lastfm_test"] = {"ok": False, "count": 0, "error": f"{type(e).__name__}: {e}"}
+    # deezer_test
+    try:
+        client = _client()
+        r = await client.get("https://api.deezer.com/search", params={"q": "кишлак", "limit": 5}, timeout=8.0)
+        r.raise_for_status()
+        data = r.json()
+        rows = data.get("data") or []
+        result["deezer_test"] = {"ok": True, "count": len(rows), "tracks": [{"artist": (row.get("artist") or {}).get("name"), "title": row.get("title")} for row in rows[:3]], "error": None}
+    except Exception as e:
+        result["deezer_test"] = {"ok": False, "count": 0, "error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[:1000]}
+    # yt_dlp_available
+    try:
+        yt_ok, yt_detail = wave_engine._yt_available()
+        result["yt_dlp_available"] = yt_ok
+        result["yt_dlp_version"] = yt_detail
+    except Exception as e:
+        result["yt_dlp_available"] = False
+        result["yt_dlp_version"] = f"{type(e).__name__}: {e}"
+    # yt_test ytsearch5:кишлак
+    try:
+        # reuse wave_engine._yt_music_search
+        yt_items = await wave_engine._yt_music_search("кишлак", limit=5)
+        result["yt_test"] = {"ok": True, "count": len(yt_items), "items": [{"yt_id": x.get("yt_id"), "title": x.get("title")} for x in yt_items[:5]], "error": None}
+        if not yt_items:
+            # also try direct subprocess for debugging
+            try:
+                cmd = wave_engine._resolve_yt_dlp_cmd()
+                proc = subprocess.run(cmd + ["ytsearch5:кишлак", "--dump-json", "--flat-playlist", "--skip-download", "--no-warnings"], capture_output=True, text=True, timeout=20)
+                result["yt_test"]["subprocess_rc"] = proc.returncode
+                result["yt_test"]["subprocess_stdout_lines"] = len([l for l in proc.stdout.splitlines() if l.strip().startswith("{")])
+                result["yt_test"]["subprocess_stderr"] = proc.stderr[:600]
+            except Exception as se:
+                result["yt_test"]["subprocess_error"] = f"{type(se).__name__}: {se}"
+    except Exception as e:
+        result["yt_test"] = {"ok": False, "count": 0, "error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[:1200]}
+    # last_recommend_attempt
+    try:
+        result["last_recommend_attempt"] = getattr(wave_engine, "_last_recommend_attempt", {})
+    except Exception as e:
+        result["last_recommend_attempt"] = {"error": f"{type(e).__name__}: {e}"}
+    # add time
+    result["time"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    return result
+
 @app.post("/api/wave/signal")
 async def api_wave_signal(body: dict[str, Any]) -> dict[str, Any]:
     track_id = str(body.get("track_id") or "").strip()
