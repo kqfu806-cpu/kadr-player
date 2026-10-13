@@ -3559,21 +3559,39 @@ const clipCache = new Map();
     }
     renderKaraokeState();
     async function enableMic(){
+      console.log('[karaoke] requesting mic');
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast("Твой браузер не поддерживает микрофон");
+        console.log('[karaoke] no getUserMedia');
         return false;
       }
       try {
         micStream = await navigator.mediaDevices.getUserMedia({audio:true});
-        micCtx = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('[karaoke] mic granted');
+        // b) если ctx уже есть — использовать, иначе создать
+        if (micCtx && micCtx.state !== 'closed') {
+          console.log('[karaoke] context reused', micCtx.state);
+        } else {
+          micCtx = new (window.AudioContext || window.webkitAudioContext)();
+          console.log('[karaoke] context created', micCtx.state);
+        }
+        // c) КРИТИЧНО — resume без этого в браузере звук не пойдёт
+        try { await micCtx.resume(); } catch(e) { console.log('[karaoke] resume error', e); }
+        console.log('[karaoke] context state:', micCtx.state);
+        console.log('[karaoke] state:', micCtx.state);
         micSource = micCtx.createMediaStreamSource(micStream);
         micGain = micCtx.createGain();
         let gv = 70;
         try { const s = localStorage.getItem(gainKey); if(s!==null) gv = parseInt(s,10); } catch(_){}
         if (!Number.isFinite(gv)) gv = 70;
-        micGain.gain.value = Math.max(0, Math.min(1, gv/100));
+        // e) gain 0.7 (70/100) — respects slider but defaults to 0.7
+        micGain.gain.value = 0.7;
+        // также учитываем слайдер если не 70: Math.max(0, Math.min(1, gv/100)) // keep 0.7 base
+        try { micGain.gain.value = Math.max(0, Math.min(1, gv/100)); } catch(_){ micGain.gain.value = 0.7; }
         micSource.connect(micGain);
         micGain.connect(micCtx.destination);
+        console.log('[karaoke] connected');
+        console.log('[karaoke] context state:', micCtx.state);
         toast("Надень наушники иначе свист");
         return true;
       } catch(e){
@@ -3597,8 +3615,11 @@ const clipCache = new Map();
       try{ if(micStream) micStream.getTracks().forEach(t=>t.stop()); }catch(_){}
       try{ if(micGain) micGain.disconnect(); }catch(_){}
       try{ if(micSource) micSource.disconnect(); }catch(_){}
-      try{ if(micCtx) micCtx.close(); }catch(_){}
-      micStream = null; micGain = null; micSource = null; micCtx = null;
+      // НЕ закрывать ctx если он используется другими функциями — только disconnect
+      // if (micCtx && !audioCtx) try{ micCtx.close(); }catch(_){}
+      micStream = null; micGain = null; micSource = null;
+      // micCtx оставляем для переиспользования, не обнуляем если нужен другим
+      console.log('[karaoke] disabled');
     }
     btn?.addEventListener("click", async (e)=>{
       e.stopPropagation();
