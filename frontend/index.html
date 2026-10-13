@@ -364,18 +364,35 @@
     <button class="icon-btn sm rail-open hidden" id="btnExpand" title="Показать список">›</button>
 
     <div id="djStrip">
-  <div class="dj-strip-deck">
-    <span class="dj-strip-title" id="djStripTitleA">Deck A — пусто</span>
-    <button class="dj-strip-btn" id="djStripPlayA">▶</button>
-    <div class="dj-knob dj-knob-sm" data-param="stripPitchA"><div class="knob-pointer"></div></div>
+  <div class="dj-strip-deck" id="djStripDeckA">
+    <div class="dj-strip-head"><span class="dj-strip-label">DECK A</span><span class="dj-strip-bpm" id="djStripBpmA">— BPM</span></div>
+    <div class="dj-strip-title-wrap" title="Трек Deck A — скролл если длинное название"><span class="dj-strip-title" id="djStripTitleA">Deck A — пусто</span></div>
+    <div class="dj-strip-progress" aria-hidden="true"><div class="dj-strip-progress-fill" id="djStripProgressA"></div></div>
+    <div class="dj-strip-controls">
+      <button class="dj-strip-btn dj-round" id="djStripPlayA" type="button" title="Play/Pause Deck A">▶</button>
+      <button class="dj-strip-btn dj-round ghost" id="djStripPauseA" type="button" title="Pause Deck A">❚❚</button>
+      <div class="dj-knob dj-knob-sm" data-param="stripPitchA" title="Pitch A ±10%"><div class="knob-pointer"></div></div>
+      <span class="dj-strip-pitch-val" id="djStripPitchAVal">0%</span>
+    </div>
   </div>
-  <input type="range" id="djStripCrossfader" min="0" max="100" value="50" class="dj-crossfader-strip">
-  <div class="dj-strip-deck">
-    <span class="dj-strip-title" id="djStripTitleB">Deck B — пусто</span>
-    <button class="dj-strip-btn" id="djStripLoadB">Загрузить в B</button>
-    <button class="dj-strip-btn" id="djStripPlayB">▶</button>
+  <div class="dj-strip-mixer">
+    <div class="dj-strip-xf-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <input type="range" id="djStripCrossfader" min="0" max="100" value="50" class="dj-crossfader-strip" aria-label="Crossfader">
+    <div class="dj-strip-xf-hint"><span>A</span><span style="color:#ff6b9d">●</span><span>B</span></div>
+    <button class="btn ghost dj-sync-btn" id="djStripSync" type="button" title="Скопировать BPM/темп с Deck A на Deck B">◎ Синхронизировать</button>
   </div>
-  <button class="dj-strip-btn" id="djStripExpand" title="Развернуть">⛶</button>
+  <div class="dj-strip-deck" id="djStripDeckB">
+    <div class="dj-strip-head"><span class="dj-strip-label">DECK B</span><span class="dj-strip-bpm" id="djStripBpmB">— BPM</span></div>
+    <div class="dj-strip-title-wrap" title="Трек Deck B — скролл"><span class="dj-strip-title" id="djStripTitleB">Deck B — пусто</span></div>
+    <div class="dj-strip-progress" aria-hidden="true"><div class="dj-strip-progress-fill" id="djStripProgressB"></div></div>
+    <div class="dj-strip-controls">
+      <button class="btn ghost" id="djStripLoadB" type="button">Загрузить в B</button>
+      <button class="dj-strip-btn dj-round" id="djStripPlayB" type="button" title="Play/Pause Deck B">▶</button>
+      <div class="dj-knob dj-knob-sm" data-param="stripPitchB" title="Pitch B ±10%"><div class="knob-pointer"></div></div>
+      <span class="dj-strip-pitch-val" id="djStripPitchBVal">0%</span>
+    </div>
+  </div>
+  <button class="dj-strip-btn dj-strip-expand" id="djStripExpand" type="button" title="Развернуть полную DJ-панель">⛶</button>
 </div>
 
 <footer class="player glass glare">
@@ -556,8 +573,8 @@
           <canvas class="deck-waveform" id="waveformA" width="600" height="80" aria-label="Waveform A"></canvas>
           <div class="deck-title" id="deckATitle">—</div>
           <div class="deck-controls">
-            <button class="btn primary" data-deck-play="A" type="button">Play</button>
-            <button class="btn ghost" data-deck-pause="A" type="button">Pause</button>
+            <button class="btn primary dj-round" data-deck-play="A" type="button">Play</button>
+            <button class="btn ghost dj-round" data-deck-pause="A" type="button">Pause</button>
             <button class="btn ghost" data-deck-cue="A" type="button" title="Cue — возврат к началу">Cue</button>
             <div class="deck-loop" role="group" aria-label="Loop">
               <button class="btn ghost" data-loop="A:8" type="button">Loop 8</button>
@@ -600,8 +617,8 @@
           <canvas class="deck-waveform" id="waveformB" width="600" height="80" aria-label="Waveform B"></canvas>
           <div class="deck-title" id="deckBTitle">—</div>
           <div class="deck-controls">
-            <button class="btn primary" data-deck-play="B" type="button">Play</button>
-            <button class="btn ghost" data-deck-pause="B" type="button">Pause</button>
+            <button class="btn primary dj-round" data-deck-play="B" type="button">Play</button>
+            <button class="btn ghost dj-round" data-deck-pause="B" type="button">Pause</button>
             <button class="btn ghost" data-deck-cue="B" type="button" title="Cue — возврат к началу">Cue</button>
             <div class="deck-loop" role="group" aria-label="Loop">
               <button class="btn ghost" data-loop="B:8" type="button">Loop 8</button>
@@ -636,8 +653,13 @@
         </section>
       </div>
       <div class="dj-mixer">
-        <label class="dj-crossfader">Crossfader <input type="range" id="crossfader" min="0" max="100" value="50" step="1"></label>
-        <div class="dj-eq-master muted">EQ Low/Mid/High — на каждой деке · Pitch ±10% · MediaRecorder .webm</div>
+        <div class="dj-mixer-center">
+          <div class="dj-xf-ticks" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <label class="dj-crossfader">Crossfader <input type="range" id="crossfader" min="0" max="100" value="50" step="1"></label>
+          <div class="dj-xf-hint"><span>A</span><span>│</span><span>B</span></div>
+          <button class="btn ghost dj-sync-btn" id="djSync" type="button" title="Скопировать BPM Deck A → Deck B">◎ Синхронизировать</button>
+        </div>
+        <div class="dj-eq-master muted">EQ Low/Mid/High — на каждой деке · Pitch ±10% · MediaRecorder .webm · BPM <span id="djMixerBpmInfo" class="muted">—</span></div>
       </div>
     </section>
   </div>

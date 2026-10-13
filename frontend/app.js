@@ -3025,6 +3025,9 @@ const clipCache = new Map();
         else am.pause();
       }catch(_){}
     });
+    document.getElementById("djStripPauseA")?.addEventListener("click", ()=>{
+      try{ const am=document.getElementById("audio"); if(am) am.pause(); }catch(_){}
+    });
     // PlayB controls second audio
     playB?.addEventListener("click", async ()=>{
       try{
@@ -3111,6 +3114,89 @@ const clipCache = new Map();
       apply(0);
     })();
     // ensure strip does not overlap player — already sticky bottom 0 above player (player is below strip in DOM, strip sticky will stay above)
+    // TASK7: синхронизация BPM — копирует BPM/темп с Deck A на Deck B
+    (function(){
+      const syncBtn = document.getElementById("djStripSync");
+      const syncBtnMain = document.getElementById("djSync");
+      const bpmA = document.getElementById("deckABpm") || document.getElementById("djStripBpmA");
+      const bpmB = document.getElementById("deckBBpm") || document.getElementById("djStripBpmB");
+      const stripBpmA = document.getElementById("djStripBpmA");
+      const stripBpmB = document.getElementById("djStripBpmB");
+      const mixerInfo = document.getElementById("djMixerBpmInfo");
+      function doSync(){
+        try{
+          const src = (bpmA && bpmA.textContent) || "";
+          const srcVal = src.replace("BPM","").trim();
+          const isStub = !srcVal || srcVal.includes("—");
+          // копируем BPM текст
+          if(bpmB) bpmB.textContent = isStub ? "— BPM" : srcVal + " BPM";
+          if(stripBpmB) stripBpmB.textContent = isStub ? "— BPM" : srcVal + " BPM";
+          if(mixerInfo) mixerInfo.textContent = isStub ? "—" : srcVal + " BPM";
+          // также копируем Pitch A → B и playbackRate
+          const pitchA = document.getElementById("pitchA");
+          const pitchB = document.getElementById("pitchB");
+          const stripPitchA = document.querySelector('[data-param="stripPitchA"]');
+          const stripPitchB = document.querySelector('[data-param="stripPitchB"]');
+          if(pitchA && pitchB){
+            pitchB.value = pitchA.value;
+            pitchB.dispatchEvent(new Event("input",{bubbles:true}));
+            const v = document.getElementById("pitchBKnobValue");
+            if(v) v.textContent = (Number(pitchA.value)>0?"+":"")+pitchA.value+"%";
+            if(stripPitchB){
+              stripPitchB.dataset.value = pitchA.value;
+              const angle = -135 + (Number(pitchA.value)+10)/20*270;
+              stripPitchB.style.transform = `rotate(${angle}deg)`;
+              const valEl = document.getElementById("djStripPitchBVal");
+              if(valEl) valEl.textContent = (Number(pitchA.value)>0?"+":"")+pitchA.value+"%";
+            }
+          }
+          // также аудиоускорение
+          const audioMain = document.getElementById("audio");
+          const audioB = document.getElementById("audioB") || document.getElementById("djStripAudioB");
+          if(audioMain && audioB){
+            try{ audioB.playbackRate = audioMain.playbackRate; }catch(_){}
+          }
+          console.log('[dj] sync BPM', src, '→', srcVal);
+          try{ toast("BPM синхронизирован: " + (isStub ? "—" : srcVal + " BPM") + " A → B"); }catch(_){}
+        }catch(e){ console.log('[dj] sync fail', e); }
+      }
+      syncBtn?.addEventListener("click", doSync);
+      syncBtnMain?.addEventListener("click", doSync);
+      // также обновляем BPM дисплеи каждые 800мс из api/track/bpm если есть
+      setInterval(async ()=>{
+        try{
+          const cur = typeof currentTrack==="function"? currentTrack(): null;
+          if(cur && cur.id){
+            // пробуем взять BPM из /api/track/{id}/bpm если доступно
+            try{
+              const data = await api(`/api/track/${cur.id}/bpm`);
+              const bpm = data && (data.bpm || data.tempo);
+              if(bpm){
+                const txt = Math.round(Number(bpm)) + " BPM";
+                if(bpmA) bpmA.textContent = txt;
+                if(stripBpmA) stripBpmA.textContent = txt;
+                if(mixerInfo) mixerInfo.textContent = txt;
+              }
+            }catch(_){}
+          }
+        }catch(_){}
+      }, 4000);
+      // также progress bars для strip уже обновляются выше, но добавим fallback для Deck A/B progress
+      const stripAProg = document.getElementById("djStripProgressA");
+      const stripBProg = document.getElementById("djStripProgressB");
+      setInterval(()=>{
+        try{
+          const am = document.getElementById("audio");
+          const ab = document.getElementById("audioB") || document.getElementById("audioA");
+          if(am && stripAProg && am.duration){
+            stripAProg.style.width = `${(am.currentTime/am.duration)*100}%`;
+          }
+          if(ab && stripBProg && ab.duration){
+            stripBProg.style.width = `${(ab.currentTime/ab.duration)*100}%`;
+          }
+        }catch(_){}
+      }, 300);
+    })();
   })();
 
   // ---------- модалка выбора папки ----------
