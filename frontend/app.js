@@ -1307,17 +1307,29 @@ const clipCache = new Map();
     if (!state.waveLanguage) query.delete("language");
     const response = await api(`/api/wave/next?${query.toString()}`);
     if (generation !== state.waveGeneration) return;
-    // BUG9: show understandable message if service unavailable + fallback via local library
-    if (response.warning) {
-      const msg = String(response.warning);
-      // if fallback: local library shown
-      if (response.fallback || msg.includes("недоступн") || msg.includes("локальн")) {
-        toast(msg);
-      } else if (response.track) {
-        // just warning but have track
-        console.info("wave warning:", msg);
-      } else {
-        toast(msg);
+    // ЗАДАЧА1: тост только если ui_message !== null, не показывать для mixed/youtube/lastfm_deezer
+    console.log('[wave] source:', response.source ?? response.track?.source, 'reason:', response.fallback_reason ?? response.track?.source, 'ui_message:', response.ui_message, 'warning:', response.warning);
+    {
+      const uiMsg = response.ui_message ?? null;
+      const src = String(response.source || response.fallback_reason || response.track?.source || "");
+      const wl = ["mixed_lastfm_youtube","youtube","youtube_no_lastfm","lastfm_deezer"];
+      if (uiMsg !== null && uiMsg !== undefined && String(uiMsg).trim() !== "") {
+        if (wl.includes(src)) {
+          console.info('[wave] suppressed toast for source', src, uiMsg);
+        } else {
+          toast(String(uiMsg));
+        }
+      } else if (response.warning) {
+        // fallback для старых ответов без ui_message: показываем только если не в белом списке
+        const msg = String(response.warning);
+        const src2 = String(response.source || "");
+        if (wl.includes(src2)) {
+          console.info('[wave] suppressed legacy warning for source', src2, msg);
+        } else if (response.fallback || msg.includes("недоступн") || msg.includes("локальн")) {
+          // старый хардкод — теперь только если не в whitelist, но оставляем для совместимости
+          // если source пустой и есть fallback — показываем только если ui_message был бы не null
+          toast(msg);
+        }
       }
     }
     if (response.track){

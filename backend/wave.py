@@ -661,6 +661,8 @@ async def recommend(
             if not fallback:
                 fallback = discovery[:count]
             items = [{**track.to_dict(), "reason": reason} for _, track, reason in fallback[:count]]
+            # ЗАДАЧА1: убираем хардкод тоста — отдаём ui_message только для локального fallback
+            fb_reason = _last_recommend_attempt.get("fallback_reason", "local_fallback")
             return {
                 "items": items,
                 "mode": mode,
@@ -671,6 +673,9 @@ async def recommend(
                 "embedding_count": len(vectors),
                 "warning": "Last.fm/Deezer недоступны — показываю локальную подборку",
                 "fallback": True,
+                "source": "local",
+                "fallback_reason": fb_reason,
+                "ui_message": "Last.fm/Deezer недоступны — показываю локальную подборку",
             }
         # ЗАДАЧА1: записать итоговый источник — сохраняем mixed/youtube уже установленный выше, иначе выводим по флагу
         if final_source == "none":
@@ -690,6 +695,18 @@ async def recommend(
         _last_recommend_attempt["yt_attempted"] = yt_attempted
         _last_recommend_attempt["yt_returned"] = yt_returned
         log.info("wave recommend done mode=%s count=%s lastfm_client_ok=%s remote_before=%s yt_attempted=%s yt_returned=%s final_source=%s", mode, count, lastfm is not None, remote_before, yt_attempted, yt_returned, final_source)
+        # ЗАДАЧА1: отдаём source/fallback_reason/ui_message — тост только если ui_message !== null и source не в белом списке
+        src = final_source
+        fb = _last_recommend_attempt.get("fallback_reason", "")
+        # whitelist: эти источники НЕ должны вызывать тост
+        ui_msg = None
+        warn = None if remote else "Новые рекомендации Last.fm/Deezer сейчас недоступны"
+        if src in ("local", "local_after_youtube_empty", "local_no_lastfm_youtube_empty"):
+            ui_msg = warn or "Last.fm/Deezer недоступны — показываю локальную подборку"
+        elif not remote:
+            ui_msg = warn
+        else:
+            ui_msg = None
         return {
             "items": remote,
             "mode": mode,
@@ -698,7 +715,10 @@ async def recommend(
             "expected_mood": expected_mood,
             "embeddings_ready": len(vectors) >= len(tracks),
             "embedding_count": len(vectors),
-            "warning": None if remote else "Новые рекомендации Last.fm/Deezer сейчас недоступны",
+            "warning": warn,
+            "source": src,
+            "fallback_reason": fb,
+            "ui_message": ui_msg,
         }
     if mode == "mix":
         # TASK8: если remote мало — дополнить YouTube
@@ -724,6 +744,12 @@ async def recommend(
             {**track.to_dict(), "reason": reason}
             for track, reason in chosen[:known_count]
         ]
+        # ЗАДАЧА1: mix тоже отдаёт source
+        fb3 = _last_recommend_attempt.get("fallback_reason", "")
+        src3 = _last_recommend_attempt.get("final_source", final_source if 'final_source' in locals() else "mix")
+        ui3 = None
+        if not remote:
+            ui3 = "Новые рекомендации Last.fm/Deezer сейчас недоступны"
         return {
             "items": items[:count],
             "mode": mode,
@@ -733,6 +759,9 @@ async def recommend(
             "embeddings_ready": len(vectors) >= len(tracks),
             "embedding_count": len(vectors),
             "warning": None if remote else "Новые рекомендации Last.fm/Deezer сейчас недоступны",
+            "source": src3,
+            "fallback_reason": fb3,
+            "ui_message": ui3,
         }
 
     return {
