@@ -129,7 +129,7 @@
     playing: false,
     shuffle: false,
     repeat: "off", // off | all | one
-    volume: 0.85,
+    volume: (()=>{ try{ const s=parseFloat(localStorage.getItem('kadr-volume')); return Number.isFinite(s)?s:0.85; }catch(e){ return 0.85; } })(),
     muted: false,
     media: null, // ответ /api/resolve
     mode: "audio", // audio | youtube
@@ -1596,6 +1596,7 @@ const clipCache = new Map();
   vol.addEventListener("input", () => {
     state.volume = Number(vol.value) / 100;
     state.muted = state.volume === 0;
+    try{ localStorage.setItem('kadr-volume', String(state.volume)); }catch(e){}
     applyVolume();
   });
   // ЗАДАЧА7: синхронизируем правую панель — исполнитель/альбом/громкость в один ряд
@@ -5040,9 +5041,15 @@ const clipCache = new Map();
     }
   });
 
-  // init
-  vol.value = "85";
+  // init — БАГ4: читаем сохранённую громкость, применяем, если audio не готов — после loadedmetadata
+  try{
+    const savedVol2 = parseFloat(localStorage.getItem('kadr-volume'));
+    if(Number.isFinite(savedVol2)) state.volume = savedVol2;
+    state.muted = state.volume === 0;
+  }catch(e){}
+  vol.value = String(Math.round(state.volume*100));
   applyVolume();
+  try{ audio.addEventListener("loadedmetadata", ()=>{ try{ audio.volume = state.muted?0:state.volume; const vv=document.getElementById("volValue"); if(vv) vv.textContent=`${Math.round((state.muted?0:state.volume)*100)}%`; }catch(e){} }); }catch(e){}
   loadWaveLikes();
   loadHealth().then(() => {
     if (state.activeSection === "weekly") openWeekly();
