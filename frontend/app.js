@@ -338,14 +338,11 @@ const clipCache = new Map();
     try {
       let data;
       // БАГ5: лог URL и body чтобы проверить реальный вызов
-      console.log("[download] trigger", { url: useUrl, artist, title, album, year, track_no, preview_duration: pd });
       if (useUrl) {
         const body = JSON.stringify({ url: useUrl, artist, title, album, year, track_no, preview_duration: pd });
-        console.log("[download] POST /api/download body", body);
         data = await api("/api/download", { method: "POST", body });
       } else {
         const body = JSON.stringify({ artist, title, album, year, preview_duration: pd });
-        console.log("[download] POST /api/download/by-search body", body, " query ytsearch:\""+artist+" - "+title+"\" official audio");
         data = await api("/api/download/by-search", { method: "POST", body });
       }
       // БАГ3: если бэкенд вернул статус error из-за отсутствия бинарника — показать message через toast
@@ -731,7 +728,6 @@ const clipCache = new Map();
                   if(state.yt && typeof state.yt.getPlayerState==='function'){
                     const st = state.yt.getPlayerState();
                     if(st===1 || st===3){ // PLAYING 1, BUFFERING 3
-                      console.log("[youtube] postMessage error suppressed — clip is playing, no toast");
                       return;
                     }
                   }
@@ -4070,7 +4066,6 @@ const clipCache = new Map();
         if(bg) bg.style.background = val;
       }
       document.documentElement.style.setProperty("--wallpaper-index", String(idx));
-      console.log("[wallpaper] apply", idx, val? val.slice(0,40): "default");
     }
     let wallpaperIndex = 0;
     try{
@@ -4090,17 +4085,7 @@ const clipCache = new Map();
     setInterval(()=>{
       wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
       applyWallpaper(wallpaperIndex);
-      console.log("[wallpaper] auto rotate 30min", wallpaperIndex);
     }, 30*60*1000);
-    // БАГ2 диагностика аниме-темы
-    try{
-      console.log("[theme] html data-theme =", document.documentElement.getAttribute("data-theme"));
-      console.log("[theme] ambient exists =", !!document.querySelector(".ambient"));
-      const amb = document.querySelector(".ambient");
-      if(amb) console.log("[theme] ambient bg =", getComputedStyle(amb).background.slice(0,200));
-      console.log("[theme] body::before content =", getComputedStyle(document.body, "::before").content);
-      console.log("[theme] body::before bgImage exists =", getComputedStyle(document.body, "::before").backgroundImage !== "none");
-    }catch(e){ console.log("[theme] probe err", e); }
     if (accentSelect) {
       accentSelect.value = readAccentPreference();
       accentSelect.addEventListener("change", () => applyAccent(accentSelect.value, true));
