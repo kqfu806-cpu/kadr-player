@@ -678,9 +678,9 @@ const clipCache = new Map();
       try {
         // БАГ6: youtube-nocookie.com НЕ поддерживает postMessage как www.youtube.com — возвращаем host www.youtube.com
         state.yt = new YT.Player("ytPlayerInner", {
-          host: 'https://www.youtube.com',
+          host: 'https://www.youtube.com', // БАГ3: не nocookie, иначе postMessage origin mismatch
           videoId,
-          playerVars: {
+          playerVars: { // БАГ3: origin жёсткий 127.0.0.1:8000, не window.location.origin
             autoplay: 1,
             rel: 0,
             modestbranding: 1,
