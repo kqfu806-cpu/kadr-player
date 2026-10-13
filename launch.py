@@ -161,7 +161,89 @@ def cleanup_old_files() -> None:
                 _log(f"cleanup: removed {sp.relative_to(ROOT)}")
         except Exception as e:
             _log(f"cleanup: splash error {e}")
-    _log("cleanup: protected venv/, backend/, frontend/app.js|styles.css|index.html, requirements.txt, tools/audiodl.exe — not touched")
+
+    # TASK7: доп. мусор из корня: *.tmp, *.temp, *.cache, *.old, *.orig (кроме .env.orig), *.orig.bak
+    try:
+        protected_names = {
+            ".env", "requirements.txt", "run.bat", "start_app.bat", "launch.py",
+            "install_autostart.bat", "remove_autostart.bat"
+        }
+        protected_dirs = {"backend", "frontend", "tools", "venv", "cache", "docs"}
+        for pat in ["*.tmp", "*.temp", "*.cache", "*.old", "*.orig", "*.orig.bak"]:
+            for f in ROOT.glob(pat):
+                try:
+                    if not f.is_file():
+                        continue
+                    if f.name == ".env.orig":
+                        _log(f"cleanup: keep {f.name} (protected .env.orig)")
+                        continue
+                    if f.name in protected_names:
+                        _log(f"cleanup: keep {f.name} (protected)")
+                        continue
+                    # не трогать если внутри protected_dirs (но glob только корень, так что ок)
+                    f.unlink()
+                    _log(f"cleanup: removed {f.name} (TASK7 root pattern {pat})")
+                except Exception as e:
+                    _log(f"cleanup: {f.name} error {e}")
+        # также *.tmp может быть с точкой: уже покрыто, но проверить отдельно
+        for f in ROOT.glob("*.tmp"):
+            try:
+                if f.is_file() and f.name not in protected_names:
+                    f.unlink()
+                    _log(f"cleanup: removed {f.name} (tmp)")
+            except Exception as e:
+                _log(f"cleanup: {f.name} error {e}")
+    except Exception as e:
+        _log(f"cleanup: TASK7 root extra error {e}")
+
+    # TASK7: из cache/ удалять: test_*, tmp_*, *.tmp (кроме logs/ и *.sqlite3)
+    try:
+        cache_dir = ROOT / "cache"
+        if cache_dir.is_dir():
+            for pat in ["test_*", "tmp_*", "*.tmp"]:
+                for f in cache_dir.glob(pat):
+                    try:
+                        if not f.is_file():
+                            continue
+                        # не трогать cache/logs/ и *.sqlite3
+                        if "logs" in f.parts or f.suffix == ".sqlite3":
+                            _log(f"cleanup: keep {f.relative_to(ROOT)} (protected)")
+                            continue
+                        f.unlink()
+                        _log(f"cleanup: removed {f.relative_to(ROOT)} (TASK7 cache {pat})")
+                    except Exception as e:
+                        _log(f"cleanup: {f} error {e}")
+            # также проверить cache/logs не трогать, cache/*.sqlite3 не трогать — уже выше
+    except Exception as e:
+        _log(f"cleanup: TASK7 cache error {e}")
+
+    # TASK7: удалять пустые папки .pytest_run_*, .pytest-run-*
+    try:
+        for pat in [".pytest_run_*", ".pytest-run-*"]:
+            for d in ROOT.glob(pat):
+                try:
+                    if d.is_dir():
+                        # только если пустая
+                        if not any(d.iterdir()):
+                            d.rmdir()
+                            _log(f"cleanup: removed empty dir {d.name} (TASK7)")
+                        else:
+                            _log(f"cleanup: keep {d.name} not empty")
+                except Exception as e:
+                    _log(f"cleanup: {d.name} error {e}")
+        # также .pytest_run_* внутри cache? проверить
+        for pat in [".pytest_run_*", ".pytest-run-*"]:
+            for d in (ROOT / "cache").glob(pat) if (ROOT / "cache").exists() else []:
+                try:
+                    if d.is_dir() and not any(d.iterdir()):
+                        d.rmdir()
+                        _log(f"cleanup: removed empty cache/{d.name}")
+                except Exception:
+                    pass
+    except Exception as e:
+        _log(f"cleanup: TASK7 empty dirs error {e}")
+
+    _log("cleanup: protected venv/, backend/, frontend/, tools/, cache/*.sqlite3, cache/logs/, .env, requirements.txt, run.bat, start_app.bat, launch.py, install_autostart.bat, remove_autostart.bat, docs/ — not touched")
     _log("cleanup: done")
 
 def main() -> None:
