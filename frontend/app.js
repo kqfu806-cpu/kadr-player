@@ -1320,7 +1320,13 @@ const clipCache = new Map();
         toast(msg);
       }
     }
-    if (response.track) state.waveQueue.push(response.track);
+    if (response.track){
+      state.waveQueue.push(response.track);
+      // ЗАДАЧА5: если трек youtube — сразу рендерим карточку на странице волны
+      if(String(response.track.source||"")==="youtube" || response.track.youtube_id){
+        try{ renderWaveQueueItem(response.track); }catch(_){}
+      }
+    }
   }
 
   async function playWaveNext() {
@@ -1374,7 +1380,133 @@ const clipCache = new Map();
     }
   }
 
+  // ЗАДАЧА5: модалка wavePlayer + обработка youtube
+  let currentWaveYoutube = null;
+  function openWavePlayer(item){
+    currentWaveYoutube = item;
+    const modal = document.getElementById("wavePlayerModal");
+    const title = document.getElementById("wavePlayerTitle");
+    const frame = document.getElementById("wavePlayerFrame");
+    const meta = document.getElementById("wavePlayerMeta");
+    if(!modal || !frame) return;
+    const vid = String(item.youtube_id || item.youtubeId || "").trim() || (String(item.url||"").includes("v=") ? String(item.url).split("v=")[1].split("&")[0] : "");
+    const artist = item.artist || "";
+    const trackTitle = item.title || "";
+    if(title) title.textContent = `${artist} — ${trackTitle}`;
+    if(meta) meta.textContent = item.reason || (item.source==="youtube" ? "Найдено в интернете" : "");
+    if(vid){
+      const origin = encodeURIComponent(window.location.origin);
+      frame.innerHTML = `<iframe src="https://www.youtube.com/embed/${vid}?autoplay=1&origin=${origin}" allow="autoplay; encrypted-media" allowfullscreen style="width:100%; height:100%; border:0;"></iframe>`;
+    } else {
+      frame.innerHTML = `<div style="display:grid; place-items:center; height:100%; color:var(--muted);">Нет video_id</div>`;
+    }
+    modal.classList.remove("hidden");
+    modal.style.display = "flex";
+    console.log("[wave] open youtube", vid, artist, trackTitle);
+  }
+  function closeWavePlayer(){
+    const modal = document.getElementById("wavePlayerModal");
+    const frame = document.getElementById("wavePlayerFrame");
+    if(modal){ modal.classList.add("hidden"); modal.style.display="none"; }
+    if(frame) frame.innerHTML = "";
+    currentWaveYoutube = null;
+    console.log("[wave] close youtube");
+  }
+  document.getElementById("wavePlayerClose")?.addEventListener("click", closeWavePlayer);
+  document.getElementById("wavePlayerModal")?.addEventListener("click", (e)=>{ if(e.target.id==="wavePlayerModal") closeWavePlayer(); });
+  document.addEventListener("keydown", (e)=>{ if(e.code==="Escape"){ const m=document.getElementById("wavePlayerModal"); if(m && !m.classList.contains("hidden")){ e.preventDefault(); closeWavePlayer(); } } });
+  document.getElementById("wavePlayerDownload")?.addEventListener("click", async ()=>{
+    const item = currentWaveYoutube || window._waveDownloadItem;
+    if(!item){ toast("Нет трека для скачивания"); return; }
+    const artist = item.artist || "";
+    const title = item.title || "";
+    if(!artist || !title){ toast("Нет artist/title"); return; }
+    try{
+      toast("Скачиваю: " + artist + " — " + title);
+      const res = await api("/api/download/by-search", {method:"POST", body: JSON.stringify({artist, title})});
+      const taskId = res.task_id || res.id || "";
+      if(taskId){
+        toast("Задача " + taskId + " — скачивание...");
+        // poll status
+        let tries=0;
+        const iv=setInterval(async ()=>{
+          tries++;
+          try{
+            const st = await api(`/api/download/status/${taskId}`);
+            if(st.status==="done"){ clearInterval(iv); toast("Скачано: " + (st.path||"")); }
+            else if(st.status==="error"){ clearInterval(iv); toast("Ошибка: " + (st.detail||st.message||"")); }
+            else if(tries>30) clearInterval(iv);
+          }catch(_){ if(tries>10) clearInterval(iv); }
+        }, 2000);
+      } else {
+        toast(res.message || "Запущено");
+      }
+    }catch(e){
+      toast("Ошибка скачивания: " + (e.message||""));
+    }
+  });
+  // рендер очереди волны на странице wave
+  function renderWaveQueueItem(item){
+    const list = document.getElementById("waveQueueList");
+    if(!list) return;
+    const isYoutube = String(item.source||"") === "youtube" || !!item.youtube_id;
+    const vid = String(item.youtube_id||"").trim();
+    const id = item.id || `${item.artist}-${item.title}`;
+    // avoid duplicates
+    if(list.querySelector(`[data-wave-id="${id}"]`)) return;
+    const card = document.createElement("div");
+    card.className = "wave-card glass";
+    card.dataset.waveId = id;
+    card.style.cssText = "display:grid; grid-template-columns:56px 1fr auto; gap:0.8rem; align-items:center; padding:0.7rem 0.85rem; border-radius:0.8rem; border:1px solid var(--stroke); background: var(--bg-opacity);";
+    const cover = item.cover ? `/api/cover-proxy?url=${encodeURIComponent(item.cover)}` : "";
+    card.innerHTML = `
+      <img src="${cover || `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 56 56'><rect width='56' height='56' fill='%230f0a1a'/><text x='28' y='32' text-anchor='middle' fill='%23ff6b9d' font-size='22'>♪</text></svg>`}" alt="" style="width:56px; height:56px; border-radius:0.45rem; object-fit:cover; background:var(--glass);" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 56 56&quot;><rect width=&quot;56&quot; height=&quot;56&quot; fill=&quot;%230f0a1a&quot;/><text x=&quot;28&quot; y=&quot;32&quot; text-anchor=&quot;middle&quot; fill=&quot;%23ff6b9d&quot; font-size=&quot;22&quot;>♪</text></svg>'">
+      <div style="min-width:0;">
+        <div style="font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${String(item.artist||"").replace(/</g,"&lt;")} — ${String(item.title||"").replace(/</g,"&lt;")}</div>
+        <div class="muted" style="font-size:0.72rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${String(item.reason||"").replace(/</g,"&lt;")} ${isYoutube? "· <span style='color:#00d4ff;'>YouTube</span>":""}</div>
+        ${isYoutube && vid ? `<div class="muted" style="font-size:0.68rem;">youtube_id: ${vid}</div>` : ""}
+      </div>
+      <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+        ${isYoutube ? `<button class="btn primary wave-listen" type="button" data-vid="${vid}" data-artist="${String(item.artist||"").replace(/"/g,"&quot;")}" data-title="${String(item.title||"").replace(/"/g,"&quot;")}">▶ Слушать</button><button class="btn ghost wave-download" type="button" data-artist="${String(item.artist||"").replace(/"/g,"&quot;")}" data-title="${String(item.title||"").replace(/"/g,"&quot;")}">⬇ Скачать</button>` : `<button class="btn primary wave-play" type="button">▶ Воспроизвести</button>`}
+        <button class="btn ghost wave-like" type="button" title="В избранное">❤</button>
+      </div>
+    `;
+    list.appendChild(card);
+    card.querySelector(".wave-listen")?.addEventListener("click", ()=>{
+      openWavePlayer(item);
+    });
+    card.querySelector(".wave-download")?.addEventListener("click", async ()=>{
+      window._waveDownloadItem = item;
+      document.getElementById("wavePlayerDownload")?.click();
+    });
+    card.querySelector(".wave-like")?.addEventListener("click", ()=>{
+      try{ api("/api/wave/signal", {method:"POST", body: JSON.stringify({track_id: item.id, signal:"like", duration:0})}); toast("❤ Добавлено в избранное"); }catch(_){}
+    });
+    // show section
+    document.getElementById("waveQueueSection")?.classList.remove("hidden");
+  }
+  function clearWaveQueueUI(){ const l=document.getElementById("waveQueueList"); if(l) l.innerHTML=""; document.getElementById("waveQueueSection")?.classList.add("hidden"); }
+
   function playExternalWaveItem(item) {
+    // ЗАДАЧА5: если youtube — показать модалку/карточку вместо deezer preview
+    const src = String(item.source||"");
+    const vid = String(item.youtube_id||"").trim();
+    if(src==="youtube" || vid){
+      console.log("[wave] youtube item", item.artist, item.title, vid, item.url);
+      // показать в списке волны
+      renderWaveQueueItem(item);
+      // также открыть модалку при автоплей? — показываем карточку, не автовоспроизведение
+      // обновляем nowPlaying инфо
+      if(state.playSession){ try{ samplePlaySession(); finishPlaySession(); }catch(_){} }
+      $("nowTitle").textContent = item.title || "—";
+      $("nowArtist").textContent = item.artist || "YouTube";
+      $("nowAlbum").textContent = "Найдено в интернете · YouTube";
+      $("waveReason").textContent = `Причина: ${item.reason || "новый трек по вкусу"}`;
+      document.getElementById("welcome")?.classList.add("hidden");
+      document.getElementById("mediaLayer")?.classList.remove("hidden");
+      // не вызываем audio.src, ждём клика Слушать
+      return;
+    }
     const preview = String(item.preview || "");
     let previewUrl;
     try {
@@ -1436,10 +1568,14 @@ const clipCache = new Map();
       button.setAttribute("aria-pressed", String(active));
     });
     state.waveQueue = [];
+    try{ clearWaveQueueUI(); }catch(_){}
     if (state.waveMode) {
       if (state.externalTrack) audio.pause();
+      // показать секцию волны
+      document.getElementById("waveQueueSection")?.classList.remove("hidden");
       playWaveNext();
     } else {
+      document.getElementById("waveQueueSection")?.classList.add("hidden");
       startWave();
     }
   }

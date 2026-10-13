@@ -829,6 +829,7 @@ async def _yt_music_search(query: str, limit: int = 10) -> list[dict[str, Any]]:
         log.warning("yt-dlp search thread fail %s query=%s", type(e).__name__, query[:60])
         return []
 
+# ЗАДАЧА5: режим "new" возвращает треки с полями artist, title, youtube_id, url, source ("lastfm"/"deezer"/"youtube")
 async def _youtube_fallback_tracks(tracks: list[Track], known: set[tuple[str,str]], play_map: dict, lastfm: LastFmClient | None, count: int, excluded: set[str], mood_filter: str | None, language_filter: str | None) -> list[dict[str, Any]]:
     """Если Last.fm пуст — ищем через YouTube Music по названиям из истории прослушиваний (play_map) или случайным трекам."""
     # собираем seed queries из топа прослушиваний

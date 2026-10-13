@@ -230,6 +230,10 @@
           </div>
         </section>
         <section class="viewport" id="viewport">
+          <section class="wave-queue hidden" id="waveQueueSection" aria-live="polite" style="padding:1rem;">
+            <h3 style="margin:0 0 0.8rem;">Моя волна — найденные треки</h3>
+            <div id="waveQueueList" style="display:grid; gap:0.7rem;"></div>
+          </section>
           <div class="welcome" id="welcome">
             <div class="welcome-mark">▶</div>
             <h1>Ваша музыка. Ваш Курымдык.</h1>
@@ -804,6 +808,14 @@
       <ul class="dj-library-list" id="djLibraryList" role="listbox"></ul>
       <footer><span class="muted">Выберите трек для загрузки на деку</span></footer>
     </section>
+  </div>
+
+  <div class="modal hidden" id="wavePlayerModal">
+    <div class="modal-card glass" style="max-width:900px; width:90%;">
+      <header style="display:flex; justify-content:space-between; align-items:center;"><h2 id="wavePlayerTitle">—</h2><button class="icon-btn sm" id="wavePlayerClose" type="button">✕</button></header>
+      <div id="wavePlayerFrame" style="aspect-ratio:16/9; background:#000; border-radius:0.7rem; overflow:hidden;"></div>
+      <div style="display:flex; gap:0.6rem; margin-top:0.8rem; justify-content:space-between; align-items:center;"><span class="muted" id="wavePlayerMeta" style="font-size:0.72rem;"></span><button class="btn primary" id="wavePlayerDownload" type="button">⬇ Скачать</button></div>
+    </div>
   </div>
 
   <div class="toasts" id="toasts"></div>
