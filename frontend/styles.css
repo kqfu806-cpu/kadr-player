@@ -115,6 +115,7 @@ body::after {
   grid-template-columns: minmax(0, 1fr);
   gap: clamp(0.4rem, 0.8vh, 0.75rem);
   padding: clamp(0.45rem, 1vh, 0.85rem);
+  padding-bottom: 130px;
   overflow: hidden;
 }
 
@@ -399,6 +400,7 @@ html[data-accent-custom="true"] .btn.primary {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  padding-bottom: 130px;
 }
 html.collapsed .layout {
   grid-template-columns: 0 0.4rem minmax(0, 1fr);
@@ -2224,18 +2226,21 @@ input[type="range"]::-webkit-slider-thumb {
   background: rgba(20,20,30,0.85);
   border-top: 1px solid rgba(255,107,157,0.25);
   z-index: 99;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 #djStrip.hidden { display: none !important; }
 .dj-strip-deck { display: flex; align-items: center; gap: 0.5rem; flex: 1; }
 .dj-strip-title { font-size: 0.75rem; opacity: 0.75; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dj-strip-btn { padding: 0.3rem 0.6rem; font-size: 0.75rem; border-radius: 0.5rem; }
-.dj-crossfader-strip { flex: 1; min-width: 120px; }
-.dj-knob-sm { width: 44px !important; height: 44px !important; }
+.dj-strip-btn { padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 0.5rem; }
+.dj-crossfader-strip { flex: 1; min-width: 120px; max-width: 300px; margin: 0 auto; }
+.dj-knob-sm { width: 44px !important; height: 44px !important; border-radius: 50% !important; overflow: hidden !important; display: grid !important; place-items: center !important; }
 .player { z-index: 101; position: relative; }
 html:has(#djPanel:not(.hidden)) #djStrip { display: none !important; }
 @media (max-width: 900px) {
-  #djStrip { flex-direction: column; height: auto; bottom: 70px; padding: 0.5rem; gap: 0.5rem; }
-  .dj-strip-deck { flex: none; width: 100%; justify-content: space-between; }
+  #djStrip { flex-direction: row; height: 110px; bottom: 70px; padding: 0.4rem 0.6rem; gap: 0.5rem; flex-wrap: nowrap; overflow-x: auto; }
+  .dj-strip-deck { flex: 1 1 auto; min-width: 0; }
+  .dj-strip-title { max-width: 90px; font-size: 0.68rem; }
 }
 @keyframes pulse { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
 
