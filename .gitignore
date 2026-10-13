@@ -3,10 +3,15 @@ __pycache__/
 *.pyc
 .tools/
 *.log
+*.bak
+log*.txt
 .env
 archive/
 .venv/
-cache/
+cache/*.log
+!cache/*.sqlite3
+!cache/*.sqlite
+!cache/*.db
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
