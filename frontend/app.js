@@ -5075,7 +5075,13 @@ const clipCache = new Map();
       const btnLog = document.getElementById("diagDownloadLog");
       const tbody = document.getElementById("diagTable");
       const timeEl = document.getElementById("diagTime");
+      const waveLastfm = document.getElementById("waveDiagLastfm");
+      const waveDeezer = document.getElementById("waveDiagDeezer");
+      const waveYt = document.getElementById("waveDiagYt");
+      const waveLast = document.getElementById("waveDiagLast");
+      const waveRefreshBtn = document.getElementById("waveDiagRefresh");
       let lastData = null;
+      let lastWaveData = null;
       function escH(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
       function render(data){
         lastData = data;
@@ -5100,6 +5106,50 @@ const clipCache = new Map();
         }
         tbody.innerHTML = html;
       }
+      async function fetchWaveDiag(){
+        if(waveLastfm) waveLastfm.textContent = "Загрузка…";
+        if(waveDeezer) waveDeezer.textContent = "Загрузка…";
+        if(waveYt) waveYt.textContent = "Загрузка…";
+        if(waveLast) waveLast.textContent = "Загрузка…";
+        try{
+          const d = await api("/api/wave/debug");
+          lastWaveData = d;
+          // lastfm
+          const lf = d.lastfm_test || {};
+          if(waveLastfm){
+            if(lf.ok) waveLastfm.innerHTML = `<span style="color:#16a34a">✓ OK</span> ${lf.count} артистов (${(lf.artists||[]).join(", ")})`;
+            else waveLastfm.innerHTML = `<span style="color:#dc2626">✗ ${escH(lf.error||"ошибка")}</span>`;
+          }
+          const dz = d.deezer_test || {};
+          if(waveDeezer){
+            if(dz.ok) waveDeezer.innerHTML = `<span style="color:#16a34a">✓ OK</span> ${dz.count} треков`;
+            else waveDeezer.innerHTML = `<span style="color:#dc2626">✗ ${escH(dz.error||"ошибка")}</span>`;
+          }
+          const yt_ok = d.yt_dlp_available;
+          const yt_ver = d.yt_dlp_version || "";
+          if(waveYt){
+            if(yt_ok) waveYt.innerHTML = `<span style="color:#16a34a">✓ OK</span> ${escH(yt_ver.slice(0,120))} — yt_test ${d.yt_test?.count||0} треков`;
+            else waveYt.innerHTML = `<span style="color:#dc2626">✗ не найден</span> ${escH(yt_ver.slice(0,120))}`;
+          }
+          const last = d.last_recommend_attempt || {};
+          if(waveLast){
+            if(!last || !Object.keys(last).length) waveLast.textContent = "ещё не было запросов";
+            else {
+              const src = last.final_source || last.sources || "";
+              const cnt = last.remote_final ?? last.remote_before ?? "-";
+              const time = last.time || d.time || "";
+              const reason = last.fallback_reason || "";
+              waveLast.textContent = `источник: ${typeof src==="string"?src:JSON.stringify(src).slice(0,80)} | вернул: ${cnt} | причина: ${reason} | время: ${time.slice(11,19)}`;
+              if(reason) waveLast.title = JSON.stringify(last, null, 2).slice(0,800);
+            }
+          }
+        }catch(e){
+          if(waveLastfm) waveLastfm.textContent = "Ошибка: " + (e.message||String(e)).slice(0,80);
+          if(waveDeezer) waveDeezer.textContent = "Ошибка";
+          if(waveYt) waveYt.textContent = "Ошибка";
+          if(waveLast) waveLast.textContent = "Ошибка загрузки /api/wave/debug";
+        }
+      }
       async function fetchDiag(){
         if(tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">Загрузка…</td></tr>';
         try{
@@ -5108,6 +5158,8 @@ const clipCache = new Map();
         }catch(e){
           if(tbody) tbody.innerHTML = `<tr><td colspan="3" style="color:#dc2626">Ошибка загрузки: ${escH(e.message||String(e))}</td></tr>`;
         }
+        // также грузим волну
+        fetchWaveDiag();
       }
       function exportTxt(){
         if(!lastData){ fetchDiag(); return; }
@@ -5145,6 +5197,7 @@ const clipCache = new Map();
         if(!modal) return;
         modal.classList.remove("hidden");
         fetchDiag();
+        fetchWaveDiag();
       }
       function close(){
         if(modal) modal.classList.add("hidden");
@@ -5152,6 +5205,7 @@ const clipCache = new Map();
       btnOpen?.addEventListener("click", (e)=>{ e.stopPropagation(); open(); });
       btnClose?.addEventListener("click", close);
       btnRefresh?.addEventListener("click", fetchDiag);
+      waveRefreshBtn?.addEventListener("click", fetchWaveDiag);
       btnExport?.addEventListener("click", exportTxt);
       btnLog?.addEventListener("click", downloadLog);
       modal?.addEventListener("click", (e)=>{ if(e.target===modal) close(); });

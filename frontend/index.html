@@ -560,6 +560,17 @@
         <button class="btn ghost" id="diagExport" type="button">Экспорт в .txt</button>
         <button class="btn ghost" id="diagDownloadLog" type="button">Скачать лог ошибок</button>
       </div>
+      <div id="waveDiag" style="margin-top:1rem; padding:0.8rem; border:1px solid var(--stroke); border-radius:0.7rem; background: var(--bg-opacity);">
+        <h3 style="margin:0 0 0.6rem; font-size:0.95rem;">Моя волна</h3>
+        <div style="display:grid; gap:0.35rem; font-size:0.82rem;">
+          <div>Last.fm: <span id="waveDiagLastfm" class="muted">—</span></div>
+          <div>Deezer: <span id="waveDiagDeezer" class="muted">—</span></div>
+          <div>yt-dlp: <span id="waveDiagYt" class="muted">—</span></div>
+          <div>Последний запрос: <span id="waveDiagLast" class="muted">—</span></div>
+        </div>
+        <button class="btn ghost" id="waveDiagRefresh" type="button" style="margin-top:0.6rem;">Проверить заново</button>
+        <div class="muted" style="font-size:0.7rem; margin-top:0.4rem;">Дёргает GET /api/wave/debug</div>
+      </div>
       <footer style="margin-top:0.6rem;"><span class="muted">Все ошибки JS пишутся в cache/logs/client-errors.log — смотри F12 не нужно. Кнопка «Скачать лог ошибок» отдаёт этот файл с бэкенда.</span></footer>
     </section>
   </div>
