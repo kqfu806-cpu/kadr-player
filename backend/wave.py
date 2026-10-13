@@ -592,7 +592,9 @@ async def recommend(
                 _last_recommend_attempt["yt_attempted"] = True
                 _last_recommend_attempt["yt_returned"] = yt_returned
                 if yt_returned == 0:
-                    log.info("wave youtube fallback returned [] — youtube_reason=%s seeds=%s", youtube_reason, [t.artist for t in tracks[:3]])
+                    log.info("wave youtube fallback returned [] — youtube_reason=%s seeds=%s need=%s", youtube_reason, [t.artist for t in tracks[:3]], need)
+                    # ЗАДАЧА1: логируем что yt-dlp вернул (stdout/stderr уже в _yt_music_search, дублируем сюда причину)
+                    log.warning("wave yt_returned_empty seeds=%s reason=%s stdout_lines=0 stderr_truncated=%s", [t.artist for t in tracks[:3]], youtube_reason, "empty")
                     _last_recommend_attempt["yt_returned_empty"] = "yt_returned_empty"
                     if yt_tracks is not None and len(yt_tracks)==0:
                         log.warning("wave yt_returned_empty query=%s reason=%s", [t.artist for t in tracks[:3]], youtube_reason)
@@ -607,8 +609,12 @@ async def recommend(
                         log.info("wave youtube fallback produced %s tracks mode=%s (replaced empty)", len(remote), mode)
                         final_source = "youtube"
                 else:
-                    log.info("wave youtube fallback empty, will go to local")
-                    final_source = "local_after_youtube_empty"
+                    if remote:
+                        log.info("wave youtube fallback empty but keep %d lastfm tracks (yt_returned_empty)", len(remote))
+                        final_source = "lastfm_deezer"
+                    else:
+                        log.info("wave youtube fallback empty, will go to local")
+                        final_source = "local_after_youtube_empty"
                     _last_recommend_attempt["youtube_empty_reason"] = "yt_returned_empty"
             except Exception as e:
                 log.exception("youtube fallback failed mode=%s reason=%s: %s\n%s", mode, youtube_reason, type(e).__name__, traceback.format_exc())
@@ -666,16 +672,24 @@ async def recommend(
                 "warning": "Last.fm/Deezer недоступны — показываю локальную подборку",
                 "fallback": True,
             }
-        # ЗАДАЧА1: записать итоговый источник
-        if remote and yt_attempted and yt_returned > 0:
-            final_source = "youtube"
-        elif remote and not yt_attempted:
-            final_source = "lastfm_deezer"
-        elif remote and yt_attempted and yt_returned == 0:
-            final_source = "lastfm_deezer"
+        # ЗАДАЧА1: записать итоговый источник — сохраняем mixed/youtube уже установленный выше, иначе выводим по флагу
+        if final_source == "none":
+            if remote and yt_attempted and yt_returned > 0:
+                final_source = "lastfm_deezer" if remote_before >= (count*0.5 if mode=="new" else round(count*0.4)*0.5) else "youtube"
+            elif remote and not yt_attempted:
+                final_source = "lastfm_deezer"
+            elif remote and yt_attempted and yt_returned == 0:
+                final_source = "lastfm_deezer"
+            elif not remote:
+                final_source = "local_after_youtube_empty" if yt_attempted else "local"
+            else:
+                final_source = "lastfm_deezer"
+        # если уже был mixed_lastfm_youtube / youtube — не перезатираем
         _last_recommend_attempt["final_source"] = final_source
         _last_recommend_attempt["remote_final"] = len(remote)
-        log.info("wave final mode=%s final_source=%s remote=%d yt_attempted=%s yt_returned=%d", mode, final_source, len(remote), yt_attempted, yt_returned)
+        _last_recommend_attempt["yt_attempted"] = yt_attempted
+        _last_recommend_attempt["yt_returned"] = yt_returned
+        log.info("wave recommend done mode=%s count=%s lastfm_client_ok=%s remote_before=%s yt_attempted=%s yt_returned=%s final_source=%s", mode, count, lastfm is not None, remote_before, yt_attempted, yt_returned, final_source)
         return {
             "items": remote,
             "mode": mode,
