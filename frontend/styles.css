@@ -2368,7 +2368,7 @@ html[data-theme="anime"] .ambient {
 }
 /* частицы без JS — только CSS — БАГ3: z-index 0, opacity 0.55, видно над ambient, не скрыто за overlay */
 html[data-theme="anime"] body::before {
-  content:"";
+  content: "" !important;
   position: fixed; inset: -10%;
   z-index: 0;
   pointer-events: none;
@@ -2381,7 +2381,7 @@ html[data-theme="anime"] body::before {
     radial-gradient(2px 2px at 88% 32%, rgba(157,124,255,0.9) 50%, transparent 55%),
     radial-gradient(1.4px 1.4px at 42% 78%, rgba(255,255,255,0.75) 50%, transparent 55%),
     radial-gradient(1.6px 1.6px at 65% 88%, rgba(255,107,157,0.85) 50%, transparent 55%),
-    radial-gradient(1px 1px at 18% 85%, rgba(0,212,255,0.8) 50%, transparent 55%);
+    radial-gradient(1px 1px at 18% 85%, rgba(0,212,255,0.8) 50%, transparent 55%) !important;
   background-repeat: no-repeat;
   animation: animeParticles 22s linear infinite;
   will-change: transform;
