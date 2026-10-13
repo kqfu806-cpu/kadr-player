@@ -3617,13 +3617,15 @@ const clipCache = new Map();
         toast("Надень наушники иначе свист");
         return true;
       } catch(e){
+        console.log('[karaoke] getUserMedia failed', e && e.name, e && e.message, e);
+        try { alert("Микрофон: " + (e && e.message ? e.message : String(e)) + " (" + (e && e.name ? e.name : "Unknown") + ")"); } catch(_){}
         const name = e && e.name ? e.name : "";
         if (name === "NotAllowedError" || name === "PermissionDeniedError") {
           toast("Разреши доступ");
         } else if (name === "NotFoundError") {
           toast("Твой браузер не поддерживает микрофон");
         } else {
-          toast("Разреши доступ");
+          toast("Разреши доступ — " + (e && e.message ? e.message.slice(0,120) : ""));
         }
         enabled = false;
         state.karaokeEnabled = false;
@@ -3632,6 +3634,12 @@ const clipCache = new Map();
         syncLyrics(getPosition());
         return false;
       }
+    }
+    // TASK3: гарантировать кликабельность — z-index + position relative, не перекрыта
+    if(btn){
+      btn.style.position = 'relative';
+      btn.style.zIndex = '10';
+      btn.style.pointerEvents = 'auto';
     }
     function disableMic(){
       try{ if(micStream) micStream.getTracks().forEach(t=>t.stop()); }catch(_){}
@@ -3643,7 +3651,10 @@ const clipCache = new Map();
       // micCtx оставляем для переиспользования, не обнуляем если нужен другим
       console.log('[karaoke] disabled');
     }
+    // TASK3: обработчик караоке — логи, enableMic до использования, alert при ошибке, не перекрыта
+    console.log('[karaoke] enableMic defined?', typeof enableMic);
     btn?.addEventListener("click", async (e)=>{
+      console.log('[karaoke] toggle clicked, state:', state.karaokeEnabled, 'enabled:', enabled);
       e.stopPropagation();
       const willEnable = !enabled;
       if (willEnable) {

@@ -2502,6 +2502,11 @@ html[data-theme="dragon"] .app-bg::before {
 .dj-library-list li small { color: var(--muted); font-size:0.68rem; }
 
 /* ЗАДАЧА 7: аниме-дизайн — тёмный с glassmorphism */
+
+/* TASK3: караоке кнопка не перекрыта — position + z-index, type=button уже в HTML */
+#karaokeToggle{ position:relative; z-index:10; pointer-events:auto; }
+.karaoke-toggle{ position:relative; z-index:10; }
+
 html[data-theme="anime"], [data-theme="anime"] {
   --bg: #0f0a1a;
   --bg-elev: #1e1430;
