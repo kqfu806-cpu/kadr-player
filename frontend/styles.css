@@ -2504,6 +2504,11 @@ html[data-theme="dragon"] .app-bg::before {
 /* ЗАДАЧА 7: аниме-дизайн — тёмный с glassmorphism */
 
 /* TASK3: караоке кнопка не перекрыта — position + z-index, type=button уже в HTML */
+
+/* TASK5: смена обоев без перезагрузки — transition для #appBg и .ambient + CSS переменная --wallpaper */
+#appBg, .ambient, #app{ transition: background 0.6s ease; }
+:root{ --wallpaper-index: 0; --wallpaper: none; }
+
 #karaokeToggle{ position:relative; z-index:10; pointer-events:auto; }
 .karaoke-toggle{ position:relative; z-index:10; }
 

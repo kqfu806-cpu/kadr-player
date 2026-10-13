@@ -4204,16 +4204,26 @@ const clipCache = new Map();
     function applyWallpaper(idx){
       const bg = document.getElementById("appBg");
       const ambient = document.getElementById("ambient");
+      const app = document.getElementById("app") || document.body;
       const val = wallpapers[idx % wallpapers.length];
       try{ localStorage.setItem(wallpaperKey, String(idx % wallpapers.length)); }catch(_){}
+      console.log('[wallpaper] apply idx:', idx, 'val:', val ? val.slice(0,60) : 'null');
       if(!val){
         if(bg) bg.style.background = "";
         if(ambient) ambient.style.background = "";
+        if(app) app.style.background = "";
+        document.body.style.background = "";
+        document.documentElement.style.removeProperty("--wallpaper");
       } else {
-        if(ambient) ambient.style.background = val;
-        if(bg) bg.style.background = val;
+        if(ambient) { ambient.style.background = val; ambient.style.transition = "background 0.6s ease"; }
+        if(bg) { bg.style.background = val; bg.style.transition = "background 0.6s ease"; }
+        if(app) app.style.background = val;
+        document.body.style.background = val;
+        document.documentElement.style.setProperty("--wallpaper", val);
       }
       document.documentElement.style.setProperty("--wallpaper-index", String(idx));
+      // триггер repaint без перезагрузки
+      try{ document.documentElement.offsetHeight; }catch(_){}
     }
     let wallpaperIndex = 0;
     try{
@@ -4224,12 +4234,27 @@ const clipCache = new Map();
     applyWallpaper(wallpaperIndex);
     const wallpaperBtn = document.getElementById("btnChangeWallpaper");
     wallpaperBtn?.addEventListener("click", ()=>{
+      console.log('[wallpaper] btn clicked before:', wallpaperIndex);
       wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
       applyWallpaper(wallpaperIndex);
+      console.log('[wallpaper] btn clicked after:', wallpaperIndex);
       const prev = wallpaperBtn.textContent;
       wallpaperBtn.textContent = "Обои: "+(wallpaperIndex+1)+"/"+wallpapers.length;
       setTimeout(()=>{ wallpaperBtn.textContent="Сменить обои"; }, 1200);
     });
+    // TASK5: глобальная страховка — если кнопка в шапке не привязана, делегируем
+    document.addEventListener('click', (e)=>{
+      const wb = e.target.closest && e.target.closest('#btnChangeWallpaper');
+      if(wb && !wb._kadrWallpaperBound){
+        console.log('[wallpaper] delegated click');
+        wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
+        applyWallpaper(wallpaperIndex);
+      }
+    }, true);
+    try{ if(wallpaperBtn) wallpaperBtn._kadrWallpaperBound = true; }catch(_){}
+    // expose глобально для проверки
+    try{ window.applyWallpaper = applyWallpaper; window.wallpaperIndex = wallpaperIndex; }catch(_){}
+
     setInterval(()=>{
       wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
       applyWallpaper(wallpaperIndex);
