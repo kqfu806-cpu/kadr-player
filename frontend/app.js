@@ -1115,7 +1115,10 @@ const clipCache = new Map();
 
   async function persistPlaySession(session) {
     const track = state.tracks.find((item) => item.id === session.trackId);
+    // БАГ2: не отправлять если меньше 30 сек с начала прослушивания — не спамить, только после 30с
     if (!track || session.duration <= 30) return;
+    // доп. проверка реального currentTime >30 (защита от фоновых скачков duration)
+    try { if (typeof getPosition === 'function' && getPosition() <= 30) return; } catch(_) {}
     try {
       await api("/api/stats/play", {
         method: "POST",
