@@ -1,4 +1,5 @@
 @echo off
+REM TASK2 stable: cd /d "%~dp0" + venv create/activate + pip + uvicorn, no splash/Edge
 REM Kurymdyk — только сайт. Двойной клик → браузер http://127.0.0.1:8000
 setlocal EnableExtensions
 cd /d "%~dp0"
