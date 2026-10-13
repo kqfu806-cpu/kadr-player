@@ -3739,32 +3739,55 @@ const clipCache = new Map();
         return false;
       }
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false, latency:0.01}});
+        // ЗАДАЧА1: максимальная агрессивность — latency 0, 48kHz, mono, без обработок
+        // bypass-режим для наушников: echoCancellation полностью off (при наушниках эхо не нужно)
+        const useHeadphones = true; // предполагается: пользователь в наушниках
+        const constraints = {
+          audio: {
+            echoCancellation: false, // bypass при наушниках
+            noiseSuppression: false,
+            autoGainControl: false,
+            latency: 0,
+            sampleRate: 48000,
+            channelCount: 1
+          }
+        };
+        if (useHeadphones) constraints.audio.echoCancellation = false;
+        micStream = await navigator.mediaDevices.getUserMedia(constraints);
         console.log('[karaoke] mic granted');
         try { const tr = micStream.getAudioTracks()[0]; if(tr) console.log('[karaoke] getSettings', JSON.stringify(tr.getSettings())); } catch(e){ console.log('[karaoke] getSettings err', e); }
-        // b) если ctx уже есть — использовать, иначе создать
+        // b) если ctx уже есть — использовать, иначе создать c latencyHint 0 (минимум, не interactive)
         if (micCtx && micCtx.state !== 'closed') {
           console.log('[karaoke] context reused', micCtx.state);
         } else {
-          micCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
-          console.log('[karaoke] context created', micCtx.state, 'sampleRate', micCtx.sampleRate, 'baseLatency', micCtx.baseLatency ?? 'n/a');
+          micCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint: 0, sampleRate: 48000});
+          console.log('[karaoke] context created', micCtx.state, 'sampleRate', micCtx.sampleRate, 'baseLatency', micCtx.baseLatency ?? 'n/a', 'outputLatency', micCtx.outputLatency ?? 'n/a');
         }
         // c) КРИТИЧНО — resume без этого в браузере звук не пойдёт
         try { await micCtx.resume(); } catch(e) { console.log('[karaoke] resume error', e); }
         console.log('[karaoke] context state:', micCtx.state);
         console.log('[karaoke] state:', micCtx.state);
+        // измерение задержки (baseLatency/outputLatency)
+        try { console.log('[karaoke] baseLatency:', micCtx.baseLatency, 'outputLatency:', micCtx.outputLatency, 'sampleRate:', micCtx.sampleRate); } catch(_){}
         micSource = micCtx.createMediaStreamSource(micStream);
-        micGain = micCtx.createGain();
+        // ЗАДАЧА1: прямой путь source → destination БЕЗ gain-node посередине — gain объединяется
+        // gain сохраняем в micGain для совместимости слайдера, но подключаем напрямую если bypass
         let gv = 70;
         try { const s = localStorage.getItem(gainKey); if(s!==null) gv = parseInt(s,10); } catch(_){}
         if (!Number.isFinite(gv)) gv = 70;
-        // e) gain 0.7 (70/100) — respects slider but defaults to 0.7
-        micGain.gain.value = 0.7;
-        // также учитываем слайдер если не 70: Math.max(0, Math.min(1, gv/100)) // keep 0.7 base
-        try { micGain.gain.value = Math.max(0, Math.min(1, gv/100)); } catch(_){ micGain.gain.value = 0.7; }
-        micSource.connect(micGain);
-        micGain.connect(micCtx.destination);
-        console.log('[karaoke] connected');
+        if (useHeadphones) {
+          // прямой путь без промежуточного GainNode (минимальная задержка)
+          micSource.connect(micCtx.destination);
+          // создаём gain-node только для совместимости слайдера, но не включаем в цепочку
+          try { micGain = micCtx.createGain(); micGain.gain.value = Math.max(0, Math.min(1, gv/100)); } catch(_){}
+          console.log('[karaoke] connected direct (bypass gain), gv', gv);
+        } else {
+          micGain = micCtx.createGain();
+          micGain.gain.value = Math.max(0, Math.min(1, gv/100));
+          micSource.connect(micGain);
+          micGain.connect(micCtx.destination);
+          console.log('[karaoke] connected via gain', gv);
+        }
         console.log('[karaoke] context state:', micCtx.state);
         toast("Надень наушники иначе свист");
         return true;
@@ -3796,7 +3819,7 @@ const clipCache = new Map();
     function disableMic(){
       try{ if(micStream) micStream.getTracks().forEach(t=>t.stop()); }catch(_){}
       try{ if(micGain) micGain.disconnect(); }catch(_){}
-      try{ if(micSource) micSource.disconnect(); }catch(_){}
+      try{ if(micSource) { try{ micSource.disconnect(micCtx.destination); }catch(_){} micSource.disconnect(); } }catch(_){}
       // НЕ закрывать ctx если он используется другими функциями — только disconnect
       // if (micCtx && !audioCtx) try{ micCtx.close(); }catch(_){}
       micStream = null; micGain = null; micSource = null;
