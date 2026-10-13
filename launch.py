@@ -135,6 +135,77 @@ def _desktop_log(msg: str) -> None:
         pass
 
 
+def cleanup_old_files() -> None:
+    """TASK6: delete .pytest_cache>7d, cache/server.log>10MB keep last 1000 lines, cache/errors.log>10MB, *.bak>30d in root, not touch cache/*.sqlite3 venv/ frontend/ backend/ .tools/desktop_launch.log, log to cache/cleanup.log"""
+    import datetime, time
+    log_path = ROOT / "cache" / "cleanup.log"
+    def _log(msg: str):
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {msg}\n")
+        except Exception:
+            pass
+        print(msg)
+    now = time.time()
+    # 1) .pytest_cache>7d — delete dir if older than 7 days
+    try:
+        pc = ROOT / ".pytest_cache"
+        if pc.exists():
+            mtime = pc.stat().st_mtime
+            age_days = (now - mtime) / 86400
+            if age_days > 7:
+                # do not touch venv/frontend/backend/.tools, but .pytest_cache is separate
+                shutil.rmtree(pc, ignore_errors=True)
+                _log(f"cleanup: removed .pytest_cache age {age_days:.1f}d")
+            else:
+                _log(f"cleanup: keep .pytest_cache age {age_days:.1f}d")
+    except Exception as e:
+        _log(f"cleanup: .pytest_cache error {e}")
+    # 2) cache/server.log>10MB keep last 1000 lines
+    for rel in ["cache/server.log", "cache/errors.log"]:
+        try:
+            fp = ROOT / rel
+            if fp.is_file():
+                size = fp.stat().st_size
+                if size > 10 * 1024 * 1024:
+                    # keep last 1000 lines
+                    try:
+                        with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                            lines = f.readlines()
+                        last = lines[-1000:] if len(lines) > 1000 else lines
+                        with open(fp, "w", encoding="utf-8") as f:
+                            f.writelines(last)
+                        _log(f"cleanup: truncated {rel} {size} -> {fp.stat().st_size} keep 1000 lines")
+                    except Exception as e:
+                        _log(f"cleanup: truncate {rel} error {e}")
+                else:
+                    _log(f"cleanup: keep {rel} size {size}")
+        except Exception as e:
+            _log(f"cleanup: {rel} error {e}")
+    # 3) *.bak>30d in root — only ROOT/*.bak, not recursive, not touch protected dirs
+    try:
+        for bak in ROOT.glob("*.bak"):
+            try:
+                if bak.is_file():
+                    # ensure not in protected: cache/*.sqlite3 etc not relevant for *.bak in root
+                    # protected check: don't touch venv/frontend/backend/.tools — these are dirs, not files in root
+                    age_days = (now - bak.stat().st_mtime) / 86400
+                    if age_days > 30:
+                        bak.unlink()
+                        _log(f"cleanup: removed {bak.name} age {age_days:.1f}d")
+                    else:
+                        _log(f"cleanup: keep {bak.name} age {age_days:.1f}d")
+            except Exception as e:
+                _log(f"cleanup: {bak.name} error {e}")
+    except Exception as e:
+        _log(f"cleanup: *.bak error {e}")
+    # 4) explicitly not touch: cache/*.sqlite3, venv/, frontend/, backend/, .tools/desktop_launch.log — ensure we didn't
+    _log("cleanup: protected cache/*.sqlite3, venv/, frontend/, backend/, .tools/desktop_launch.log not touched")
+    _log("cleanup: done")
+
+
 def _ollama_ready(timeout: float = 3) -> bool:
     # non-blocking check, timeout 3s, never raises — offline is ok
     try:
@@ -332,6 +403,10 @@ def release_instance_lock(lock_f) -> None:
 
 def main() -> None:
     os.chdir(ROOT)
+    try:
+        cleanup_old_files()
+    except Exception as e:
+        print(f"cleanup error: {e}")
     os.environ["PYTHONUTF8"] = "1"
     os.environ["PYTHONIOENCODING"] = "utf-8"
     os.environ.setdefault("OLLAMA_NUM_GPU", "1")
@@ -359,15 +434,15 @@ def main() -> None:
 
     lock_f = acquire_instance_lock()
     if lock_f is None:
-        from backend.tray import health_ok, _open_window
+        from backend.tray import health_ok
         print("Курымдык already running — opening window")
         if health_ok(1.5):
-            _open_window()
+            webbrowser.open("http://127.0.0.1:8000")
             return
         for _ in range(20):
             time.sleep(0.5)
             if health_ok(0.8):
-                _open_window()
+                webbrowser.open("http://127.0.0.1:8000")
                 return
         print("Another Курымдык is starting. Try again in a few seconds.")
         return
@@ -418,14 +493,14 @@ def _main_locked() -> None:
     print(f"\n[3/3] Starting {url}" + ("  (debug)" if debug else ""))
     print("     Ollama expected at http://127.0.0.1:11434 (optional)\n")
 
-    from backend.tray import health_ok, _open_window, _notify
+    from backend.tray import health_ok, _notify
 
-    # быстрый путь: сервер уже работает — сразу окно, без splash
+    # быстрый путь: сервер уже работает — сразу окно, без splash (TASK5: default browser)
     if health_ok(timeout=2):
         _desktop_log(f"=== LAUNCH === server already running at {url} — opening window immediately (progress 100%)")
         print("Server already running — opening window")
-        _open_window()
-        _desktop_log("main window opened (already running)")
+        webbrowser.open("http://127.0.0.1:8000")
+        _desktop_log("main window opened (already running) via webbrowser.open")
         if not debug:
             start_tray_process()
             try:
@@ -522,48 +597,18 @@ def _main_locked() -> None:
     _desktop_log("STEP 6: opening main window через 5 сек после старта сервера (БАГ1 spec, даже если сплэш не закрылся) progress 100%")
     # ждать 5 сек после старта сервера — уже ждали 3с sleep + health polling, но гарантируем 5 сек от Popen
     # (если health уже OK, всё равно открыть окно)
-    if app_mode:
+    # TASK5: simplified — always default browser, no Edge --app / pywebview
+    try:
+        webbrowser.open("http://127.0.0.1:8000")
+        _desktop_log("STEP 6: webbrowser.open http://127.0.0.1:8000 (default browser)")
+    except Exception as e:
+        _desktop_log(f"STEP 6: webbrowser.open err {e}")
+    if app_mode and not debug:
         try:
-            # сначала пробуем Edge --app через _open_window
-            _open_window()
-            _desktop_log("STEP 6: _open_window() Edge --app called")
-            # через 5 сек проверить, запустился ли процесс Edge app, иначе fallback webbrowser
-            import time as _t2
-            _t2.sleep(0.2)
-            # проверка запущенного процесса — если не запустился, fallback
-            try:
-                from backend.tray import _app_window_running
-                # ждать 5 сек суммарно
-                for _i in range(5):
-                    if _app_window_running():
-                        _desktop_log(f"STEP 6: _app_window_running True after {_i}s")
-                        break
-                    _t2.sleep(1)
-                else:
-                    _desktop_log("STEP 6: Edge app not running after 5s — fallback webbrowser.open")
-                    webbrowser.open(url)
-                    _desktop_log("STEP 6: fallback webbrowser.open executed")
-            except Exception as e:
-                _desktop_log(f"STEP 6: _app_window_running check err {e} — fallback webbrowser")
-                try: webbrowser.open(url)
-                except Exception: pass
-            _desktop_log("STEP 6: main window should be visible (Edge or fallback)")
-        except Exception as e:
-            _desktop_log(f"STEP 6: _open_window exception {e}")
-            try:
-                webbrowser.open(url)
-                _desktop_log("STEP 6: fallback webbrowser.open after exception")
-            except Exception as e2:
-                _desktop_log(f"STEP 6: fallback failed {e2}")
-        if not debug:
             _notify("Курымдык", "Курымдык свёрнут в трей. ПКМ по иконке → Выход")
             _desktop_log("STEP 6: tray notify sent")
-    else:
-        try:
-            webbrowser.open(url)
-            _desktop_log("STEP 6: browser opened (debug)")
-        except Exception as e:
-            _desktop_log(f"STEP 6: browser open err {e}")
+        except Exception:
+            pass
 
     # БАГ1: Ollama проверка ТОЛЬКО после открытия окна, в фоне — не в середине splash→health→window
     def _bg_ollama_after():

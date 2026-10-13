@@ -1556,6 +1556,8 @@ const clipCache = new Map();
 
   function applyVolume() {
     const v = state.muted ? 0 : state.volume;
+    if (applyVolume._lastV === v) return;
+    applyVolume._lastV = v;
     audio.volume = v;
     // ЗАДАЧА7: индикатор громкости с ползунком — обновляем текст
     try{ const vv=$("volValue"); if(vv) vv.textContent = `${Math.round(v*100)}%`; }catch(_){}
@@ -2873,16 +2875,16 @@ const clipCache = new Map();
           if(typeof gainA !== 'undefined' && gainA && typeof gainB !== 'undefined' && gainB){
             try{ gainA.gain.value = gA; }catch(_){}
             try{ gainB.gain.value = gB; }catch(_){}
-            // also update main audio volume via fallback when WebAudio not yet init
-            try{ audio.volume = Math.max(0, Math.min(1, gA)); }catch(_){}
-            try{ audioB.volume = Math.max(0, Math.min(1, gB)); }catch(_){}
+            // also update main audio volume via fallback when WebAudio not yet init — respect global volume
+            try{ audio.volume = Math.max(0, Math.min(1, gA * (state.muted?0:state.volume))); }catch(_){}
+            try{ audioB.volume = Math.max(0, Math.min(1, gB * (state.muted?0:state.volume))); }catch(_){}
           } else {
-            audio.volume = Math.max(0, Math.min(1, gA));
-            audioB.volume = Math.max(0, Math.min(1, gB));
+            audio.volume = Math.max(0, Math.min(1, gA * (state.muted?0:state.volume)));
+            audioB.volume = Math.max(0, Math.min(1, gB * (state.muted?0:state.volume)));
           }
         }catch(_){
-          try{ audio.volume = Math.max(0, Math.min(1, gA)); }catch(_){}
-          try{ audioB.volume = Math.max(0, Math.min(1, gB)); }catch(_){}
+          try{ audio.volume = Math.max(0, Math.min(1, gA * (state.muted?0:state.volume))); }catch(_){}
+          try{ audioB.volume = Math.max(0, Math.min(1, gB * (state.muted?0:state.volume))); }catch(_){}
         }
       }
       stripCross?.addEventListener("input", updateStripCross);
@@ -3028,11 +3030,12 @@ const clipCache = new Map();
       const v = Number(cross?.value||50)/100;
       const gA = Math.cos(v * Math.PI/2);
       const gB = Math.sin(v * Math.PI/2);
+      const base = state.muted ? 0 : state.volume;
       try{
         const am = document.getElementById("audio");
-        if(am) am.volume = Math.max(0, Math.min(1, gA * (Number.isFinite(parseFloat(localStorage.getItem('kadr-volume')))? parseFloat(localStorage.getItem('kadr-volume')):0.85)));
+        if(am) am.volume = Math.max(0, Math.min(1, gA * base));
       }catch(_){}
-      try{ if(audioB2) audioB2.volume = Math.max(0, Math.min(1, gB)); }catch(_){}
+      try{ if(audioB2) audioB2.volume = Math.max(0, Math.min(1, gB * base)); }catch(_){}
       // also sync with main DJ crossfader if exists
       try{
         const mainCross = document.getElementById("crossfader");
@@ -3517,29 +3520,106 @@ const clipCache = new Map();
     syncLyrics(getPosition());
   });
 
-  // Karaoke toggle: Вкл/Выкл word highlight, fallback line
+  // Karaoke toggle: Вкл/Выкл word highlight + mic real-time passthrough (not recording)
   (() => {
     const karaokeKey = "kadr-karaoke-enabled";
+    const gainKey = "kadr-karaoke-gain";
     let enabled = true;
     try { const v = localStorage.getItem(karaokeKey); if(v==="0"||v==="false") enabled=false; } catch(_){}
     state.karaokeEnabled = enabled;
     const btn = $("karaokeToggle");
     const panel = $("lyricsPanel");
+    let micStream = null;
+    let micCtx = null;
+    let micGain = null;
+    let micSource = null;
+    let gainSlider = document.getElementById("karaokeGain");
+    if (!gainSlider) {
+      gainSlider = document.createElement("input");
+      gainSlider.type = "range";
+      gainSlider.id = "karaokeGain";
+      gainSlider.min = "0";
+      gainSlider.max = "100";
+      let savedGain = "70";
+      try { const g = localStorage.getItem(gainKey); if(g!==null) savedGain = g; } catch(_){}
+      gainSlider.value = savedGain;
+      gainSlider.title = "Громкость микрофона";
+      gainSlider.style.width = "80px";
+      if (btn && btn.parentNode) btn.insertAdjacentElement("afterend", gainSlider);
+      gainSlider.addEventListener("input", ()=>{
+        const v = Number(gainSlider.value);
+        try { localStorage.setItem(gainKey, String(v)); } catch(_){}
+        if (micGain) try { micGain.gain.value = Math.max(0, Math.min(1, v/100)); } catch(_){}
+      });
+    }
     function renderKaraokeState(){
       if(btn) btn.textContent = enabled ? "Караоке: Вкл" : "Караоке: Выкл";
       if(panel) panel.classList.toggle("karaoke-off", !enabled);
+      if(gainSlider) gainSlider.style.display = enabled ? "" : "none";
     }
     renderKaraokeState();
-    btn?.addEventListener("click", (e)=>{
+    async function enableMic(){
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast("Твой браузер не поддерживает микрофон");
+        return false;
+      }
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+        micCtx = new (window.AudioContext || window.webkitAudioContext)();
+        micSource = micCtx.createMediaStreamSource(micStream);
+        micGain = micCtx.createGain();
+        let gv = 70;
+        try { const s = localStorage.getItem(gainKey); if(s!==null) gv = parseInt(s,10); } catch(_){}
+        if (!Number.isFinite(gv)) gv = 70;
+        micGain.gain.value = Math.max(0, Math.min(1, gv/100));
+        micSource.connect(micGain);
+        micGain.connect(micCtx.destination);
+        toast("Надень наушники иначе свист");
+        return true;
+      } catch(e){
+        const name = e && e.name ? e.name : "";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          toast("Разреши доступ");
+        } else if (name === "NotFoundError") {
+          toast("Твой браузер не поддерживает микрофон");
+        } else {
+          toast("Разреши доступ");
+        }
+        enabled = false;
+        state.karaokeEnabled = false;
+        try{ localStorage.setItem(karaokeKey, "0"); }catch(_){}
+        renderKaraokeState();
+        syncLyrics(getPosition());
+        return false;
+      }
+    }
+    function disableMic(){
+      try{ if(micStream) micStream.getTracks().forEach(t=>t.stop()); }catch(_){}
+      try{ if(micGain) micGain.disconnect(); }catch(_){}
+      try{ if(micSource) micSource.disconnect(); }catch(_){}
+      try{ if(micCtx) micCtx.close(); }catch(_){}
+      micStream = null; micGain = null; micSource = null; micCtx = null;
+    }
+    btn?.addEventListener("click", async (e)=>{
       e.stopPropagation();
-      enabled = !enabled;
-      state.karaokeEnabled = enabled;
-      try{ localStorage.setItem(karaokeKey, enabled?"1":"0"); }catch(_){}
-      renderKaraokeState();
-      // re-sync to apply fallback
-      syncLyrics(getPosition());
+      const willEnable = !enabled;
+      if (willEnable) {
+        enabled = true;
+        state.karaokeEnabled = true;
+        try{ localStorage.setItem(karaokeKey, "1"); }catch(_){}
+        renderKaraokeState();
+        syncLyrics(getPosition());
+        const ok = await enableMic();
+        if (!ok) {}
+      } else {
+        enabled = false;
+        state.karaokeEnabled = false;
+        try{ localStorage.setItem(karaokeKey, "0"); }catch(_){}
+        renderKaraokeState();
+        syncLyrics(getPosition());
+        disableMic();
+      }
     });
-    // also allow external toggle via display
   })();
 
   // ---------- инерция плейлиста + свайп сцены (transform/opacity) ----------
@@ -5201,7 +5281,7 @@ const clipCache = new Map();
   }catch(e){}
   vol.value = String(Math.round(state.volume*100));
   applyVolume();
-  try{ audio.addEventListener("loadedmetadata", ()=>{ try{ audio.volume = state.muted?0:state.volume; const vv=document.getElementById("volValue"); if(vv) vv.textContent=`${Math.round((state.muted?0:state.volume)*100)}%`; }catch(e){} }); }catch(e){}
+  try{ audio.addEventListener("loadedmetadata", ()=>{ try{ applyVolume(); }catch(e){ try{ audio.volume = state.muted?0:state.volume; }catch(_){} } }); }catch(e){}
   loadWaveLikes();
   loadHealth().then(() => {
     if (state.activeSection === "weekly") openWeekly();

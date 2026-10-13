@@ -18,59 +18,14 @@ URL = f"http://{HOST}:{PORT}"
 
 
 def _app_window_running() -> bool:
-    """Уже есть Edge/Chrome --app с профилем cache/edge-app?"""
-    if os.name != "nt":
-        return False
-    marker = "edge-app"
-    try:
-        r = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance Win32_Process -Filter \"name='msedge.exe' or name='chrome.exe'\" |"
-                " Where-Object { $_.CommandLine -match 'edge-app' } |"
-                " Select-Object -First 1 -ExpandProperty ProcessId",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return bool((r.stdout or "").strip())
-    except Exception:
-        return False
+    # TASK5: simplified stub — no Edge --app detection needed
+    return False
 
 
 def _open_window() -> None:
-    # БАГ1: пробуем Edge --app, через 5 сек проверяем, fallback webbrowser.open если не запустился
-    if os.name == "nt":
-        if _app_window_running():
-            return
-        edge = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
-        edge2 = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
-        chrome = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Google" / "Chrome" / "Application" / "chrome.exe"
-        chrome2 = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Google" / "Chrome" / "Application" / "chrome.exe"
-        profile = ROOT / "cache" / "edge-app"
-        profile.mkdir(parents=True, exist_ok=True)
-        for bin_ in (edge, edge2, chrome, chrome2):
-            if bin_.is_file():
-                try:
-                    subprocess.Popen(
-                        [str(bin_), f"--app={URL}", f"--user-data-dir={profile}"],
-                        cwd=str(ROOT),
-                    )
-                except Exception:
-                    continue
-                # ждать 5 сек, проверить запустился ли процесс Edge app, иначе fallback
-                import time
-                for _i in range(5):
-                    time.sleep(1)
-                    if _app_window_running():
-                        return
-                # не запустился за 5 сек — fallback к webbrowser
-                break
+    # TASK5: simplified — default browser only, no Edge --app / pywebview
     try:
-        webbrowser.open(URL)
+        webbrowser.open("http://127.0.0.1:8000")
     except Exception:
         pass
 
