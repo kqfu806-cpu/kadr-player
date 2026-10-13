@@ -2737,10 +2737,133 @@ const clipCache = new Map();
         if(v===null) try{ localStorage.setItem("kadr-dj-strip-visible","1"); }catch(_){}
       }
     }catch(_){}
-    btnDJ.addEventListener("click", toggleStrip);
+    // ЗАДАЧА3: короткое нажатие → полоску, долгое (600ms) или dblclick → fullscreen
+    const djFullscreen = document.getElementById("djFullscreen");
+    const djFullCrossfader = document.getElementById("djFullCrossfader");
+    const djFullscreenClose = document.getElementById("djFullscreenClose");
+    const djFullscreenX = document.getElementById("djFullscreenX");
+    const djFullSync = document.getElementById("djFullSync");
+    const djFullRecord = document.getElementById("djFullRecord");
+    const djFullCloseStrip = document.getElementById("djFullCloseStrip");
+    let longPressTimer=null;
+    let longPressed=false;
+    let lastClickTime=0;
+    function openFullscreen(){
+      if(!djFullscreen) return;
+      ensureAudioCtx();
+      djFullscreen.classList.remove("hidden");
+      djFullscreen.style.display="flex";
+      // sync titles/BPM
+      try{
+        const tA=document.getElementById("deckATitle")?.textContent||document.getElementById("djStripTitleA")?.textContent||"—";
+        const tB=document.getElementById("deckBTitle")?.textContent||document.getElementById("djStripTitleB")?.textContent||"—";
+        const elA=document.getElementById("djFullTitleA"); if(elA) elA.textContent=tA;
+        const elB=document.getElementById("djFullTitleB"); if(elB) elB.textContent=tB;
+        const bpmA=document.getElementById("deckABpm")?.textContent||document.getElementById("djStripBpmA")?.textContent||"—";
+        const bpmB=document.getElementById("deckBBpm")?.textContent||document.getElementById("djStripBpmB")?.textContent||"—";
+        const fbA=document.getElementById("djFullBpmA"); if(fbA) fbA.textContent=bpmA;
+        const fbB=document.getElementById("djFullBpmB"); if(fbB) fbB.textContent=bpmB;
+        const master=document.getElementById("djFullMasterBpm"); if(master) master.textContent=bpmA!=="—"?bpmA:bpmB;
+        if(djFullCrossfader && crossfader) djFullCrossfader.value=crossfader.value;
+      }catch(_){}
+      // hide strip/panel
+      try{ djPanel?.classList.add("hidden"); }catch(_){}
+      toast("DJ Fullscreen — Свернуть чтобы вернуться к полоске");
+      console.log("[dj] openFullscreen");
+    }
+    function closeFullscreen(){
+      if(!djFullscreen) return;
+      djFullscreen.classList.add("hidden");
+      djFullscreen.style.display="none";
+      // restore strip if was visible
+      try{ const v=localStorage.getItem("kadr-dj-strip-visible"); if(v!=="0") djStrip?.classList.remove("hidden"); }catch(_){}
+      console.log("[dj] closeFullscreen");
+    }
+    btnDJ.addEventListener("mousedown", (e)=>{
+      longPressed=false;
+      clearTimeout(longPressTimer);
+      longPressTimer=setTimeout(()=>{ longPressed=true; openFullscreen(); }, 600);
+    });
+    btnDJ.addEventListener("mouseup", ()=>{ clearTimeout(longPressTimer); });
+    btnDJ.addEventListener("mouseleave", ()=>{ clearTimeout(longPressTimer); });
+    btnDJ.addEventListener("touchstart", (e)=>{
+      longPressed=false;
+      clearTimeout(longPressTimer);
+      longPressTimer=setTimeout(()=>{ longPressed=true; openFullscreen(); }, 600);
+    }, {passive:true});
+    btnDJ.addEventListener("touchend", ()=>{ clearTimeout(longPressTimer); });
+    btnDJ.addEventListener("click", (e)=>{
+      if(longPressed){ e.preventDefault(); longPressed=false; return; }
+      const now=Date.now();
+      if(now - lastClickTime < 350){ // dblclick
+        e.preventDefault();
+        openFullscreen();
+        lastClickTime=0;
+        return;
+      }
+      lastClickTime=now;
+      setTimeout(()=>{
+        if(Date.now() - lastClickTime >= 340 && !longPressed){
+          toggleStrip();
+        }
+      }, 350);
+    });
+    btnDJ.addEventListener("dblclick", (e)=>{ e.preventDefault(); openFullscreen(); });
+    djFullscreenClose?.addEventListener("click", closeFullscreen);
+    djFullscreenX?.addEventListener("click", closeFullscreen);
+    djFullscreen?.addEventListener("click", (e)=>{ if(e.target===djFullscreen) closeFullscreen(); });
+    djFullCloseStrip?.addEventListener("click", ()=>{ closeFullscreen(); djStrip?.classList.remove("hidden"); try{ localStorage.setItem("kadr-dj-strip-visible","1"); }catch(_){} btnDJ.classList.add("on"); });
+    // sync crossfaders
+    djFullCrossfader?.addEventListener("input", ()=>{
+      if(crossfader) crossfader.value=djFullCrossfader.value;
+      updateCrossfader();
+    });
+    crossfader?.addEventListener("input", ()=>{
+      if(djFullCrossfader) djFullCrossfader.value=crossfader.value;
+    });
+    djFullSync?.addEventListener("click", ()=>{ document.getElementById("djStripSync")?.click(); document.getElementById("djSync")?.click(); });
+    djFullRecord?.addEventListener("click", ()=>{ recordBtn?.click(); });
+    // fullscreen EQ sync (inputs data-eq-full)
+    document.querySelectorAll("[data-eq-full]").forEach(inp=>{
+      inp.addEventListener("input", ()=>{
+        const [deck, band]=inp.dataset.eqFull.split(":");
+        const target=document.querySelector(`[data-eq="${deck}:${band}"]`);
+        if(target){ target.value=inp.value; target.dispatchEvent(new Event("input",{bubbles:true})); }
+        // also direct filter update if ctx ready
+        ensureAudioCtx();
+        const val=Number(inp.value);
+        if(deck==="A"){
+          if(band==="low") filterALow.gain.value=val;
+          if(band==="mid") filterAMid.gain.value=val;
+          if(band==="high") filterAHigh.gain.value=val;
+        } else {
+          if(band==="low") filterBLow.gain.value=val;
+          if(band==="mid") filterBMid.gain.value=val;
+          if(band==="high") filterBHigh.gain.value=val;
+        }
+      });
+    });
+    // mirror EQ from small to full
+    document.querySelectorAll("[data-eq]").forEach(inp=>{
+      inp.addEventListener("input", ()=>{
+        const [deck, band]=inp.dataset.eq.split(":");
+        const full=document.querySelector(`[data-eq-full="${deck}:${band}"]`);
+        if(full) full.value=inp.value;
+      });
+    });
+    // duplicate waveform draw for fullscreen canvases
+    const _origDrawWaveform = drawWaveform;
+    // wrapper to also draw to fullscreen canvases when loading
+    const origLoadDeck = loadDeck;
+    // (keep original but also sync fullscreen title/wave)
+    // djStripExpand now opens fullscreen on long? keep
     djStripExpand?.addEventListener("click", openDJ);
-    djClose?.addEventListener("click", closeDJ);
-    djPanel.addEventListener("click", e=>{ if(e.target===djPanel) closeDJ(); });
+    // ensure Esc also closes fullscreen
+    document.addEventListener("keydown", (e)=>{
+      if(e.code==="Escape" && djFullscreen && !djFullscreen.classList.contains("hidden")){
+        e.preventDefault(); closeFullscreen();
+      }
+    });
 
     // drag-drop load
     function setupDrop(deck){

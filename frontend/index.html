@@ -704,6 +704,94 @@
     </section>
   </div>
 
+  <div class="modal hidden" id="djFullscreen" role="dialog" aria-modal="true" aria-labelledby="djFullscreenTitle" style="position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; padding:1rem; background: linear-gradient(180deg, #0a0e27, #1a0f2e); backdrop-filter: blur(30px);">
+    <section class="dj-full-card glass glare" style="width:min(96vw, 1280px); height:min(92vh, 860px); display:grid; grid-template-rows:auto 1fr auto; gap:0.8rem; padding:0.9rem; border-radius:1rem; overflow:hidden; background: linear-gradient(180deg, rgba(18,12,30,0.96), rgba(10,14,27,0.98)); border:1px solid rgba(255,255,255,0.10); box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 0 36px rgba(255,107,157,0.14), 0 0 40px rgba(0,212,255,0.12);">
+      <header style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+        <h2 id="djFullscreenTitle" style="margin:0; font-size:1.15rem; letter-spacing:0.02em;">🎧 DJ Fullscreen — Deck A <span style="color:#ff6b9d; text-shadow:0 0 10px rgba(255,107,157,0.65);">●</span> Deck B <span style="color:#00d4ff; text-shadow:0 0 10px rgba(0,212,255,0.65);">●</span></h2>
+        <div style="display:flex; gap:0.5rem;">
+          <button class="btn ghost" id="djFullRecord" type="button" title="Запись микса в .webm">● Record</button>
+          <button class="btn primary" id="djFullscreenClose" type="button">Свернуть ⛶</button>
+          <button class="icon-btn sm" id="djFullscreenX" type="button">✕</button>
+        </div>
+      </header>
+      <div class="dj-full-decks" style="display:grid; grid-template-columns:1fr 360px 1fr; gap:0.8rem; min-height:0; height:100%;">
+        <section class="dj-full-deck" data-deck="A" style="display:grid; grid-template-rows:auto auto 1fr auto auto; gap:0.5rem; background: rgba(255,107,157,0.06); border:1px solid rgba(255,107,157,0.18); border-radius:0.9rem; padding:0.6rem; box-shadow: 0 0 18px rgba(255,107,157,0.12); min-height:0;">
+          <div class="deck-head" style="display:flex; justify-content:space-between; align-items:center;"><span class="deck-label" style="font-weight:800; color:#ff6b9d; text-shadow:0 0 8px rgba(255,107,157,0.55);">Deck A</span><span class="deck-bpm" id="djFullBpmA" style="color:#00d4ff; text-shadow:0 0 8px rgba(0,212,255,0.55); font-variant-numeric:tabular-nums;">— BPM</span></div>
+          <div id="djFullTitleA" class="deck-title" style="font-size:0.86rem;">—</div>
+          <canvas id="djFullWaveA" class="deck-waveform" width="520" height="140" style="width:100%; height:140px; background:rgba(0,0,0,0.25); border-radius:0.6rem; border:1px solid rgba(255,255,255,0.07);"></canvas>
+          <div class="deck-controls" style="display:flex; gap:0.45rem; flex-wrap:wrap; align-items:center;">
+            <button class="btn primary dj-round" data-deck-play="A" type="button" style="width:48px; height:48px;">▶</button>
+            <button class="btn ghost dj-round" data-deck-pause="A" type="button">❚❚</button>
+            <button class="btn ghost" data-deck-cue="A" type="button">Cue</button>
+            <span class="muted" style="margin-left:auto; font-size:0.68rem;">Pitch</span>
+            <div class="dj-knob small" data-param="pitchA" style="width:44px; height:44px;"><div class="knob-pointer"></div></div>
+          </div>
+          <div class="dj-full-eq" data-deck="A" style="display:grid; grid-template-columns:repeat(3,1fr); gap:0.4rem; font-size:0.68rem; text-align:center;">
+            <label>Low<br><input type="range" data-eq-full="A:low" min="-12" max="12" value="0" style="width:100%; accent-color:#ff6b9d;"></label>
+            <label>Mid<br><input type="range" data-eq-full="A:mid" min="-12" max="12" value="0" style="width:100%; accent-color:#ff6b9d;"></label>
+            <label>High<br><input type="range" data-eq-full="A:high" min="-12" max="12" value="0" style="width:100%; accent-color:#ff6b9d;"></label>
+          </div>
+        </section>
+        <section class="dj-full-mixer" style="display:grid; align-content:center; gap:0.7rem; justify-items:center; background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:0.9rem; padding:0.8rem;">
+          <div class="dj-xf-ticks" aria-hidden="true" style="display:flex; gap:3px; justify-content:center;"><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:12px; background:#ff6b9d; box-shadow:0 0 6px rgba(255,107,157,0.75);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span><span style="width:1px; height:6px; background:rgba(255,255,255,0.22);"></span></div>
+          <label class="dj-crossfader" style="width:100%; text-align:center;">Crossfader<br><input type="range" id="djFullCrossfader" min="0" max="100" value="50" style="width:100%; max-width:260px; accent-color:#ff6b9d; height:6px;"></label>
+          <div class="dj-xf-hint" style="display:flex; justify-content:space-between; width:100%; max-width:260px; font-size:0.62rem; color:var(--muted);"><span>A</span><span>│</span><span>B</span></div>
+          <div id="djFullMasterBpm" style="font-weight:800; color:#00d4ff; text-shadow:0 0 10px rgba(0,212,255,0.65); font-size:0.95rem;">— BPM</div>
+          <button class="btn ghost dj-sync-btn" id="djFullSync" type="button">◎ SYNC</button>
+        </section>
+        <section class="dj-full-deck" data-deck="B" style="display:grid; grid-template-rows:auto auto 1fr auto auto; gap:0.5rem; background: rgba(0,212,255,0.06); border:1px solid rgba(0,212,255,0.18); border-radius:0.9rem; padding:0.6rem; box-shadow: 0 0 18px rgba(0,212,255,0.12); min-height:0;">
+          <div class="deck-head" style="display:flex; justify-content:space-between; align-items:center;"><span class="deck-label" style="font-weight:800; color:#00d4ff; text-shadow:0 0 8px rgba(0,212,255,0.55);">Deck B</span><span class="deck-bpm" id="djFullBpmB" style="color:#00d4ff; text-shadow:0 0 8px rgba(0,212,255,0.55); font-variant-numeric:tabular-nums;">— BPM</span></div>
+          <div id="djFullTitleB" class="deck-title" style="font-size:0.86rem;">—</div>
+          <canvas id="djFullWaveB" class="deck-waveform" width="520" height="140" style="width:100%; height:140px; background:rgba(0,0,0,0.25); border-radius:0.6rem; border:1px solid rgba(255,255,255,0.07);"></canvas>
+          <div class="deck-controls" style="display:flex; gap:0.45rem; flex-wrap:wrap; align-items:center;">
+            <button class="btn primary dj-round" data-deck-play="B" type="button" style="width:48px; height:48px;">▶</button>
+            <button class="btn ghost dj-round" data-deck-pause="B" type="button">❚❚</button>
+            <button class="btn ghost" data-deck-cue="B" type="button">Cue</button>
+            <span class="muted" style="margin-left:auto; font-size:0.68rem;">Pitch</span>
+            <div class="dj-knob small" data-param="pitchB" style="width:44px; height:44px;"><div class="knob-pointer"></div></div>
+          </div>
+          <div class="dj-full-eq" data-deck="B" style="display:grid; grid-template-columns:repeat(3,1fr); gap:0.4rem; font-size:0.68rem; text-align:center;">
+            <label>Low<br><input type="range" data-eq-full="B:low" min="-12" max="12" value="0" style="width:100%; accent-color:#00d4ff;"></label>
+            <label>Mid<br><input type="range" data-eq-full="B:mid" min="-12" max="12" value="0" style="width:100%; accent-color:#00d4ff;"></label>
+            <label>High<br><input type="range" data-eq-full="B:high" min="-12" max="12" value="0" style="width:100%; accent-color:#00d4ff;"></label>
+          </div>
+        </section>
+      </div>
+      <div class="dj-full-bottom" style="display:grid; grid-template-columns:1fr 340px; gap:0.8rem; min-height:0;">
+        <div class="dj-full-effects" style="display:grid; grid-template-columns:1fr 1fr; gap:0.8rem;">
+          <div data-deck="A" style="background:rgba(255,107,157,0.07); border:1px solid rgba(255,107,157,0.14); border-radius:0.7rem; padding:0.55rem;">
+            <h4 style="margin:0 0 0.4rem; color:#ff6b9d;">Deck A Эффекты</h4>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.35rem;">
+              <button class="btn ghost dj-effect-btn" data-effect="reverb" data-deck="A" type="button">Reverb</button>
+              <button class="btn ghost dj-effect-btn" data-effect="flanger" data-deck="A" type="button">Flanger</button>
+              <button class="btn ghost dj-effect-btn" data-effect="delay" data-deck="A" type="button">Delay</button>
+              <button class="btn ghost dj-effect-btn" data-effect="filter" data-deck="A" type="button">Filter</button>
+              <button class="btn ghost dj-effect-btn" data-effect="distortion" data-deck="A" type="button">Distort</button>
+              <button class="btn ghost dj-effect-btn" data-effect="vaporwave" data-deck="A" type="button">Vaporwave</button>
+            </div>
+          </div>
+          <div data-deck="B" style="background:rgba(0,212,255,0.07); border:1px solid rgba(0,212,255,0.14); border-radius:0.7rem; padding:0.55rem;">
+            <h4 style="margin:0 0 0.4rem; color:#00d4ff;">Deck B Эффекты</h4>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.35rem;">
+              <button class="btn ghost dj-effect-btn" data-effect="reverb" data-deck="B" type="button">Reverb</button>
+              <button class="btn ghost dj-effect-btn" data-effect="flanger" data-deck="B" type="button">Flanger</button>
+              <button class="btn ghost dj-effect-btn" data-effect="delay" data-deck="B" type="button">Delay</button>
+              <button class="btn ghost dj-effect-btn" data-effect="filter" data-deck="B" type="button">Filter</button>
+              <button class="btn ghost dj-effect-btn" data-effect="distortion" data-deck="B" type="button">Distort</button>
+              <button class="btn ghost dj-effect-btn" data-effect="vaporwave" data-deck="B" type="button">Vaporwave</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid; gap:0.5rem; align-content:start;">
+          <div class="muted" style="font-size:0.72rem; line-height:1.45;">SYNC копирует BPM/темп A→B. Запись — MediaRecorder .webm. Свернуть возвращает к полоске снизу.</div>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn ghost" id="djFullCloseStrip" type="button">Показать полоску</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <div class="modal hidden" id="djLibraryModal" role="dialog" aria-modal="true" aria-labelledby="djLibraryTitle">
     <section class="modal-card glass glare">
       <header>

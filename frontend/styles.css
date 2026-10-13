@@ -2394,6 +2394,15 @@ html:has(#djPanel:not(.hidden)) #djStrip { display: none !important; }
   border-color: rgba(255,107,157,0.32) !important;
   box-shadow: 0 0 14px rgba(255,107,157,0.16) !important;
 }
+#djFullscreen{
+  position: fixed; inset: 0; z-index: 200;
+  background: linear-gradient(180deg, #0a0e27, #1a0f2e);
+  backdrop-filter: blur(30px);
+}
+#djFullscreen.hidden{ display:none !important; }
+#djFullscreen .dj-full-card{ animation: djFullIn 0.22s ease; }
+@keyframes djFullIn{ from{ opacity:0; transform:scale(0.98) translateY(8px);} to{opacity:1; transform:none; } }
+@media (max-width: 900px){ #djFullscreen .dj-full-decks{ grid-template-columns:1fr; } #djFullscreen .dj-full-bottom{ grid-template-columns:1fr; } }
 .dj-effect-btn{
   font-size:0.78rem; padding:0.45rem 0.6rem; border-radius:0.6rem;
   transition: all 0.18s ease;
