@@ -4288,6 +4288,101 @@ const clipCache = new Map();
       await refreshNetwork();
       setInterval(refreshNetwork, 5*60*1000);
     })();
+
+    // TASK1: Диагностика — страница в настройках (кнопка в themeSettings), таблица подсистема/статус/детали + экспорт + лог
+    (function diagnosticsPage(){
+      const modal = document.getElementById("diagnosticsModal");
+      const btnOpen = document.getElementById("btnDiagnostics");
+      const btnClose = document.getElementById("diagClose");
+      const btnRefresh = document.getElementById("diagRefresh");
+      const btnExport = document.getElementById("diagExport");
+      const btnLog = document.getElementById("diagDownloadLog");
+      const tbody = document.getElementById("diagTable");
+      const timeEl = document.getElementById("diagTime");
+      let lastData = null;
+      function escH(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+      function render(data){
+        lastData = data;
+        if(timeEl) timeEl.textContent = "Время: " + (data.time || new Date().toISOString());
+        if(!tbody) return;
+        const order = ["ollama","lastfm","deezer","sqlite","music_folder"];
+        const labels = {ollama:"Ollama", lastfm:"Last.fm", deezer:"Deezer", sqlite:"SQLite", music_folder:"Папка музыки"};
+        const checks = data.checks || {};
+        let html = "";
+        for(const k of order){
+          const v = checks[k] || {status:"—", details:"нет данных", ok:false};
+          const statusCls = v.ok ? "color:#16a34a;font-weight:700" : "color:#dc2626;font-weight:700";
+          const icon = v.ok ? "✓" : "✗";
+          html += `<tr><td><strong>${escH(labels[k]||k)}</strong></td><td style="${statusCls}">${icon} ${escH(v.status)}</td><td style="word-break:break-word;max-width:420px;">${escH(v.details)}</td></tr>`;
+        }
+        // также покажем дополнительные ключи если есть
+        for(const k of Object.keys(checks)){
+          if(order.includes(k)) continue;
+          const v = checks[k];
+          const statusCls = v.ok ? "color:#16a34a" : "color:#dc2626";
+          html += `<tr><td>${escH(k)}</td><td style="${statusCls}">${escH(v.status)}</td><td>${escH(v.details)}</td></tr>`;
+        }
+        tbody.innerHTML = html;
+      }
+      async function fetchDiag(){
+        if(tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">Загрузка…</td></tr>';
+        try{
+          const data = await api("/api/health/full");
+          render(data);
+        }catch(e){
+          if(tbody) tbody.innerHTML = `<tr><td colspan="3" style="color:#dc2626">Ошибка загрузки: ${escH(e.message||String(e))}</td></tr>`;
+        }
+      }
+      function exportTxt(){
+        if(!lastData){ fetchDiag(); return; }
+        let txt = "Курымдык — Диагностика\n";
+        txt += "Время: " + (lastData.time||"") + "\n";
+        txt += "Общий статус: " + (lastData.ok ? "OK" : "есть ошибки") + "\n\n";
+        const checks = lastData.checks||{};
+        for(const [k,v] of Object.entries(checks)){
+          txt += `${k} | ${v.status} | ${v.ok?"OK":"FAIL"} | ${v.details}\n`;
+        }
+        const blob = new Blob([txt], {type:"text/plain;charset=utf-8"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "diagnostics-" + new Date().toISOString().slice(0,10) + ".txt";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      }
+      function downloadLog(){
+        // отдаёт cache/logs/client-errors.log через бэкенд
+        const a = document.createElement("a");
+        a.href = "/api/logs/client-errors";
+        a.download = "client-errors.log";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // также пробуем fetch для toast если 404
+        fetch("/api/logs/client-errors", {method:"HEAD"}).then(r=>{
+          if(r.status===404) { try{ toast("Лог пуст или не найден"); }catch(_){} }
+        }).catch(()=>{});
+      }
+      function open(){
+        if(!modal) return;
+        modal.classList.remove("hidden");
+        fetchDiag();
+      }
+      function close(){
+        if(modal) modal.classList.add("hidden");
+      }
+      btnOpen?.addEventListener("click", (e)=>{ e.stopPropagation(); open(); });
+      btnClose?.addEventListener("click", close);
+      btnRefresh?.addEventListener("click", fetchDiag);
+      btnExport?.addEventListener("click", exportTxt);
+      btnLog?.addEventListener("click", downloadLog);
+      modal?.addEventListener("click", (e)=>{ if(e.target===modal) close(); });
+      document.addEventListener("keydown", (e)=>{ if(e.key==="Escape" && modal && !modal.classList.contains("hidden")) close(); });
+      // глобальный доступ из консоли
+      window.__kadrDiagnostics = {fetchDiag, exportTxt, downloadLog, open, close};
+    })();
   })();
 
   function updateNowPlaying() {

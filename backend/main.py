@@ -183,6 +183,129 @@ async def log_client_error(request: Request):
         pass
     return {"status": "ok"}
 
+@app.get("/api/logs/client-errors")
+async def get_client_errors_log():
+    path = LOGS_DIR / "client-errors.log"
+    if not path.is_file():
+        raise HTTPException(404, "Лог client-errors.log не найден")
+    return FileResponse(str(path), media_type="text/plain; charset=utf-8", filename="client-errors.log")
+
+@app.get("/api/logs/api")
+async def get_api_log():
+    path = LOGS_DIR / "api.log"
+    if not path.is_file():
+        raise HTTPException(404, "Лог api.log не найден")
+    return FileResponse(str(path), media_type="text/plain; charset=utf-8", filename="api.log")
+
+@app.get("/api/health/full")
+async def health_full() -> dict[str, Any]:
+    """Полная проверка подсистем: ollama, lastfm, deezer, sqlite, music_folder."""
+    results: dict[str, dict[str, Any]] = {}
+    # 1) ollama — онлайн? какие модели загружены?
+    try:
+        await ollama.refresh_status(_client())
+        st = ollama.status.to_dict()
+        models_loaded = [k for k, v in st.get("models", {}).items() if v]
+        details = f"url={st.get('url')} online={st.get('online')} models={' '.join(models_loaded) if models_loaded else '— нет'}"
+        if st.get("error"):
+            details += f" error={st.get('error')}"
+        results["ollama"] = {
+            "ok": bool(st.get("online")),
+            "status": "онлайн" if st.get("online") else "офлайн",
+            "details": details,
+            "raw": st,
+        }
+    except Exception as e:
+        results["ollama"] = {"ok": False, "status": "ошибка", "details": f"{type(e).__name__}: {e}"}
+    # 2) lastfm — API-ключ работает?
+    try:
+        from .lastfm_config import get_lastfm_api_key
+        key = get_lastfm_api_key()
+        if not key:
+            results["lastfm"] = {"ok": False, "status": "нет ключа", "details": "LASTFM_API_KEY не задан в .env и env — Last.fm отключён"}
+        else:
+            # пробуем лёгкий запрос
+            try:
+                r = await _client().get(
+                    "https://ws.audioscrobbler.com/2.0/",
+                    params={"method": "artist.getInfo", "artist": "Cher", "api_key": key, "format": "json"},
+                    timeout=6.0,
+                )
+                if r.status_code == 200:
+                    try:
+                        j = r.json()
+                    except Exception:
+                        j = {}
+                    if "artist" in j:
+                        results["lastfm"] = {"ok": True, "status": "ок", "details": f"ключ валиден — artist.getInfo Cher: {j['artist'].get('name')} ({j['artist'].get('url','')[:40]})"}
+                    elif "error" in j:
+                        results["lastfm"] = {"ok": False, "status": f"ошибка {j.get('error')}", "details": j.get("message","")[:300]}
+                    else:
+                        results["lastfm"] = {"ok": False, "status": f"http {r.status_code}", "details": r.text[:300]}
+                else:
+                    results["lastfm"] = {"ok": False, "status": f"http {r.status_code}", "details": r.text[:300]}
+            except Exception as e:
+                results["lastfm"] = {"ok": False, "status": "ошибка сети", "details": f"{type(e).__name__}: {e}"}
+    except Exception as e:
+        results["lastfm"] = {"ok": False, "status": "ошибка", "details": f"{type(e).__name__}: {e}"}
+    # 3) deezer — отвечает?
+    try:
+        r = await _client().get("https://api.deezer.com/search", params={"q": "eminem", "limit": 1}, timeout=6.0)
+        if r.status_code == 200:
+            try:
+                data = r.json()
+                total = data.get("total", len(data.get("data", [])))
+                results["deezer"] = {"ok": True, "status": "ок", "details": f"https://api.deezer.com/search → http 200, total={total}"}
+            except Exception as e:
+                results["deezer"] = {"ok": False, "status": "ошибка json", "details": f"{type(e).__name__}: {e} body={r.text[:200]}"}
+        else:
+            results["deezer"] = {"ok": False, "status": f"http {r.status_code}", "details": r.text[:300]}
+    except Exception as e:
+        results["deezer"] = {"ok": False, "status": "ошибка сети", "details": f"{type(e).__name__}: {e}"}
+    # 4) sqlite — БД открывается?
+    try:
+        sqlite_details = []
+        ok = True
+        for name, path in [("app_settings", APP_SETTINGS_DB_PATH), ("stats", CACHE_DIR / "stats.sqlite3")]:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                con = sqlite3.connect(str(path), timeout=5)
+                con.execute("SELECT 1")
+                con.close()
+                sqlite_details.append(f"{name}({path.name}): ок")
+            except Exception as e:
+                ok = False
+                sqlite_details.append(f"{name}({path.name}): {type(e).__name__}: {e}")
+        results["sqlite"] = {"ok": ok, "status": "ок" if ok else "ошибка", "details": "; ".join(sqlite_details)}
+    except Exception as e:
+        results["sqlite"] = {"ok": False, "status": "ошибка", "details": f"{type(e).__name__}: {e}"}
+    # 5) music_folder — папка существует? сколько треков?
+    try:
+        folder = current_folder or _saved_library_folder()
+        if not folder:
+            folder = str(DEFAULT_MUSIC_FOLDER) if DEFAULT_MUSIC_FOLDER.exists() else ""
+        if not folder:
+            results["music_folder"] = {"ok": False, "status": "не выбрана", "details": "Папка не выбрана (current_folder и DEFAULT_MUSIC пуст)"}
+        else:
+            p = Path(folder)
+            exists = p.is_dir()
+            count = len(library) if exists else 0
+            # также считаем файлы на диске если library пуста но папка есть
+            if exists and count == 0:
+                try:
+                    from .config import AUDIO_EXTENSIONS
+                    cnt_disk = sum(1 for _ in p.rglob("*") if _.suffix.lower() in AUDIO_EXTENSIONS) if p.is_dir() else 0
+                    details = f"{p} exists=да треков в памяти={count} на диске~{cnt_disk}"
+                except Exception:
+                    details = f"{p} exists=да треков={count}"
+            else:
+                details = f"{p} exists={'да' if exists else 'нет'} треков={count}"
+            results["music_folder"] = {"ok": bool(exists), "status": "ок" if exists else "нет папки", "details": details}
+    except Exception as e:
+        results["music_folder"] = {"ok": False, "status": "ошибка", "details": f"{type(e).__name__}: {e}"}
+    all_ok = all(v.get("ok") for v in results.values())
+    return {"ok": all_ok, "checks": results, "time": datetime.datetime.now().isoformat()}
+
 
 @app.exception_handler(sqlite3.OperationalError)
 async def _sqlite_error(_request: Request, exc: sqlite3.OperationalError) -> JSONResponse:
