@@ -1,21 +1,15 @@
-# Anime обои — Канеки Кен
+Положи сюда 15 обоев в формате: wallpaper-01.jpg ... wallpaper-15.jpg
+Размер 2560×1440 или больше, JPG/PNG.
 
-Положи сюда свои обои **2560×1440** (16:9) для темы Anime.
+Инструкция:
+- Папка: frontend/assets/anime/wallpapers/
+- Формат: wallpaper-01.jpg, wallpaper-02.jpg, ..., wallpaper-15.jpg
+- Размер: 2560×1440 или больше, JPG/PNG (sRGB, 80% качество, 1–2MB)
+- Если файлов нет — используется градиент #0f0a1a → #1a0f2e + встроенные SVG-обои (data-URI)
 
-Поддерживаются файлы:
-- `kaneki-2560.jpg` / `kaneki-2560.png` — главный фон Канеки Кена (маска, чёрно-белый с красным глазом)
-- `tokyo-ghoul.jpg` / `wallpaper.jpg` — дополнительный фон
-- `avatar-*.jpg` — аватарки артистов (используются если Last.fm не дал картинку)
-
-CSS темы автоматически подхватит их:
-```css
-html[data-theme="anime"] body {
-  background-image: url('/static/assets/anime/kaneki-2560.jpg'), var(--anime-gradient);
-}
-```
-
-Если файлов нет — используется градиент #0f0a1a → #1a0f2e → #0f1a2e + аниме-частицы (CSS-only, без JS).
-
-Рекомендация: 2560×1440, sRGB, JPEG 80% ~1–2MB. Не клади файлы >5MB — будет долго грузиться.
-
-После добавления — просто выбери тему Anime в шапке (⚙ → Пресет Anime) и нажми «Сменить обои».
+Подробнее:
+- Главный фон темы Anime: html[data-theme="anime"] body { background-image: var(--anime-wallpaper, linear-gradient(...)) }
+- Встроенные фолбеки (3 штуки) — SVG-градиенты с силуэтами, работают без файлов
+- Кнопка «Сменить обои» в настройках (⚙ → Сменить обои) переключает 1→15
+- Автосмена раз в 10 минут
+- Функция applyAnimeWallpaper(idx) проверяет fetch HEAD /static/assets/anime/wallpapers/wallpaper-NN.jpg и ставит --anime-wallpaper

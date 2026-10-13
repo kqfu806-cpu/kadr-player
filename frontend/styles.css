@@ -2701,18 +2701,13 @@ html[data-theme="anime"], [data-theme="anime"] {
   --anime-particles: radial-gradient(2px 2px at 12% 18%, rgba(255,255,255,0.8) 50%, transparent 55%);
   color-scheme: dark;
 }
-/* TASK6: Канеки Кен — обои 2560x1440, если файлы есть — покажем, иначе градиент+частицы */
+/* ЗАДАЧА4: 15 обоев + рандом + смена — var(--anime-wallpaper) */
 html[data-theme="anime"] body {
   background: #0f0a1a;
-  /* пробуем локальные файлы — если 404, браузер проигнорирует первый url и покажет градиент */
-  background-image:
-    url('/static/assets/anime/kaneki-2560.jpg'),
-    url('/static/assets/anime/tokyo-ghoul.jpg'),
-    url('/static/assets/anime/wallpaper.jpg'),
-    var(--anime-gradient);
-  background-size: cover, cover, cover, 400% 400%;
-  background-position: center, center, center, 0% 50%;
-  background-blend-mode: normal, normal, normal, normal;
+  background-image: var(--anime-wallpaper, linear-gradient(125deg, #0f0a1a, #1a0f2e, #0f1a2e, #1a0f2e));
+  background-size: cover;
+  background-position: center;
+  transition: background-image 0.8s ease;
   font-family: var(--font);
 }
 html[data-theme="anime"] body::after{

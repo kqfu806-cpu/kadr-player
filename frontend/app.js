@@ -4716,6 +4716,80 @@ const clipCache = new Map();
       wallpaperIndex = (wallpaperIndex+1) % wallpapers.length;
       applyWallpaper(wallpaperIndex);
     }, 30*60*1000);
+
+    // ЗАДАЧА4: 15 аниме-обоев, рандом при запуске + кнопка смены + авто 10 мин + встроенные SVG
+    const animeWallpaperKey = "kadr-anime-wallpaper-index";
+    // 2-3 встроенных data-URI SVG-градиенты с силуэтами (1920x1080, аниме-стиль)
+    const animeBuiltIn = [
+      `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1920 1080'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%' stop-color='%230f0a1a'/><stop offset='50%' stop-color='%231a0f2e'/><stop offset='100%' stop-color='%230f1a2e'/></linearGradient></defs><rect width='1920' height='1080' fill='url(%23g)'/><circle cx='320' cy='220' r='180' fill='rgba(255,107,157,0.16)'/><path d='M 820 780 Q 860 520 980 480 Q 1100 440 1140 780 Z' fill='rgba(255,255,255,0.04)' stroke='rgba(255,107,157,0.18)' stroke-width='2'/><circle cx='980' cy='420' r='72' fill='rgba(255,255,255,0.07)'/><text x='1640' y='980' font-size='48' fill='rgba(0,212,255,0.18)' font-family='sans-serif'>♪</text></svg>")`,
+      `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1920 1080'><defs><linearGradient id='g2' x1='0' y1='0' x2='1' y2='0'><stop offset='0%' stop-color='%230a0f1a'/><stop offset='100%' stop-color='%231a0f3e'/></linearGradient></defs><rect width='1920' height='1080' fill='url(%23g2)'/><ellipse cx='500' cy='800' rx='420' ry='90' fill='rgba(0,212,255,0.08)'/><path d='M 720 620 L 880 320 L 1040 620 Z' fill='none' stroke='rgba(157,124,255,0.24)' stroke-width='3'/><circle cx='880' cy='340' r='44' fill='rgba(255,255,255,0.06)'/></svg>")`,
+      `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1920 1080'><defs><linearGradient id='g3' x1='0' y1='1' x2='1' y2='0'><stop offset='0%' stop-color='%231a0f2e'/><stop offset='100%' stop-color='%230f1f3e'/></linearGradient></defs><rect width='1920' height='1080' fill='url(%23g3)'/><rect x='120' y='400' width='320' height='480' rx='18' fill='rgba(255,255,255,0.05)' stroke='rgba(255,107,157,0.16)'/><circle cx='280' cy='520' r='56' fill='rgba(0,212,255,0.14)'/></svg>")`
+    ];
+    async function applyAnimeWallpaper(idx){
+      const n = ((idx % 15) + 15) % 15 + 1; // 1..15
+      const padded = String(n).padStart(2,'0');
+      const url = `/static/assets/anime/wallpapers/wallpaper-${padded}.jpg`;
+      const fallbackUrlJpg = `/static/assets/anime/wallpapers/wallpaper-${padded}.png`;
+      console.log('[anime-wallpaper] apply idx', idx, '->', url);
+      let exists = false;
+      try{
+        const r = await fetch(url, {method:'HEAD'});
+        exists = r.ok;
+        if(!exists){
+          const r2 = await fetch(fallbackUrlJpg, {method:'HEAD'});
+          if(r2.ok){ exists=true; }
+        }
+      }catch(_){ exists=false; }
+      if(exists){
+        const val = `url("${exists ? url : fallbackUrlJpg}")`;
+        document.documentElement.style.setProperty('--anime-wallpaper', val);
+        console.log('[anime-wallpaper] set file', val);
+      } else {
+        const builtIn = animeBuiltIn[idx % animeBuiltIn.length];
+        document.documentElement.style.setProperty('--anime-wallpaper', builtIn);
+        console.log('[anime-wallpaper] fallback built-in idx', idx % animeBuiltIn.length, builtIn.slice(0,80));
+      }
+      try{ localStorage.setItem(animeWallpaperKey, String(idx)); }catch(_){}
+      document.documentElement.style.setProperty('--anime-wallpaper-index', String(idx));
+    }
+    let animeWallpaperIndex = 0;
+    try{
+      const savedAnime = localStorage.getItem(animeWallpaperKey);
+      if(savedAnime===null){
+        animeWallpaperIndex = Math.floor(Math.random()*15);
+        console.log('[anime-wallpaper] first launch random', animeWallpaperIndex);
+      } else {
+        animeWallpaperIndex = parseInt(savedAnime,10)||0;
+        console.log('[anime-wallpaper] loaded saved', animeWallpaperIndex);
+      }
+    }catch(_){ animeWallpaperIndex = Math.floor(Math.random()*15); }
+    if((document.documentElement.getAttribute('data-theme')||themeMode)==='anime'){
+      applyAnimeWallpaper(animeWallpaperIndex);
+    } else {
+      document.documentElement.style.setProperty('--anime-wallpaper-index', String(animeWallpaperIndex));
+    }
+    const animeWallpaperBtn = document.getElementById("btnChangeWallpaper");
+    animeWallpaperBtn?.addEventListener("click", ()=>{
+      if((document.documentElement.getAttribute('data-theme')||'dark')==='anime'){
+        animeWallpaperIndex = (animeWallpaperIndex+1) % 15;
+        applyAnimeWallpaper(animeWallpaperIndex);
+        console.log('[anime-wallpaper] btn next', animeWallpaperIndex);
+      }
+    });
+    setInterval(()=>{
+      if((document.documentElement.getAttribute('data-theme')||'dark')==='anime'){
+        animeWallpaperIndex = (animeWallpaperIndex+1) % 15;
+        applyAnimeWallpaper(animeWallpaperIndex);
+        console.log('[anime-wallpaper] auto 10min', animeWallpaperIndex);
+      }
+    }, 10*60*1000);
+    try{ window.applyAnimeWallpaper = applyAnimeWallpaper; window.animeWallpaperIndex = animeWallpaperIndex; window.animeBuiltIn = animeBuiltIn; }catch(_){}
+    document.addEventListener('click', (e)=>{
+      const presetBtn = e.target.closest && e.target.closest('[data-preset="anime"]');
+      if(presetBtn){
+        setTimeout(()=> applyAnimeWallpaper(animeWallpaperIndex), 120);
+      }
+    });
     if (accentSelect) {
       accentSelect.value = readAccentPreference();
       accentSelect.addEventListener("change", () => applyAccent(accentSelect.value, true));
