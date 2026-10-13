@@ -136,6 +136,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ЗАДАЧА4: логирование старта сервера и списка эндпоинтов + запись в cache/server.log
+try:
+    _server_log_path = ROOT / "cache" / "server.log"
+    _server_log_path.parent.mkdir(parents=True, exist_ok=True)
+    _sh = logging.FileHandler(_server_log_path, encoding="utf-8")
+    _sh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(_sh)
+    logging.getLogger("uvicorn.error").addHandler(_sh)
+except Exception:
+    pass
+
+@app.on_event("startup")
+async def _log_server_start():
+    _sl = logging.getLogger("kadr.server")
+    _sl.info("=== Server started at http://127.0.0.1:8000 ===")
+    try:
+        for route in app.routes:
+            path = getattr(route, "path", "")
+            methods = getattr(route, "methods", None)
+            if path and path.startswith("/api"):
+                _sl.info(f"endpoint: {path} {sorted(methods) if methods else ''}")
+    except Exception as e:
+        _sl.warning(f"route list failed: {e}")
+
 # TASK5: логи в cache/logs/
 LOGS_DIR = ROOT / "cache" / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)

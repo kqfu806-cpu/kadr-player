@@ -3020,3 +3020,10 @@ html[data-theme="anime"] body, html[data-theme="anime"] { font-family: 'Inter', 
 .listening-stats.hidden { display: none !important; }
 /* БАГ2: статистика — обычная вкладка, кнопка ← К плееру больше не нужна */
 #statsBack { display: none !important; }
+
+
+/* ЗАДАЧА4: оверлей загрузки сервера */
+#serverLoadingOverlay { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+#serverLoadingOverlay.hidden { display: none !important; }
+#serverLoadingOverlay .spinner { width:36px; height:36px; border-width:3px; }
+

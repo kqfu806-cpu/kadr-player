@@ -30,6 +30,16 @@
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
 </head>
 <body>
+  <!-- ЗАДАЧА4: оверлей загрузки пока /api/health не ответит OK (макс 15 сек) -->
+  <div id="serverLoadingOverlay" style="position:fixed; inset:0; z-index:9999; background:rgba(10,10,12,0.92); display:grid; place-items:center; color:#fff; font-family:Inter,system-ui,sans-serif;">
+    <div style="text-align:center; display:grid; gap:0.6rem; place-items:center;">
+      <div class="spinner" style="width:36px; height:36px; border:3px solid rgba(255,255,255,0.18); border-top-color:#fff; border-radius:50%; animation:spin 0.9s linear infinite;"></div>
+      <div style="font-size:1.05rem; font-weight:700;">Загрузка...</div>
+      <div style="font-size:0.82rem; color:rgba(255,255,255,0.62);">Проверка сервера</div>
+      <div id="serverLoadingText" style="font-size:0.78rem; color:rgba(255,255,255,0.5); margin-top:0.2rem;"></div>
+    </div>
+  </div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
   <div class="app-bg" id="appBg" aria-hidden="true">
     <div class="bg-cover" id="bgCover"></div>
   </div>

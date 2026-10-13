@@ -6377,6 +6377,64 @@ const clipCache = new Map();
   vol.value = String(Math.round(state.volume*100));
   applyVolume();
   try{ audio.addEventListener("loadedmetadata", ()=>{ try{ applyVolume(); }catch(e){ try{ audio.volume = state.muted?0:state.volume; }catch(_){} } }); }catch(e){}
+  // ЗАДАЧА4: оверлей Загрузка... пока /api/health не ответит OK (макс 15 сек)
+  (function serverLoadingOverlay(){
+    const overlay = document.getElementById("serverLoadingOverlay");
+    const text = document.getElementById("serverLoadingText");
+    if(!overlay) return;
+    let done = false;
+    const start = Date.now();
+    const maxMs = 15000;
+    const pollMs = 1000;
+    async function checkOnce(){
+      try{
+        const r = await fetch("/api/health", {headers:{"Content-Type":"application/json"}});
+        if(r.ok){
+          const j = await r.json().catch(()=>({ok:true}));
+          if(j.ok !== false){
+            done = true;
+            overlay.classList.add("hidden");
+            overlay.style.display = "none";
+            console.log("[server] health OK after", Date.now()-start, "ms");
+            return true;
+          }
+        }
+      }catch(e){
+        // ERR_CONNECTION_REFUSED пока сервер стартует — тихо ретраим, не спамим
+        console.warn("[server] health check failed, retry", e.message);
+      }
+      return false;
+    }
+    (async()=>{
+      // сразу пробуем
+      if(await checkOnce()) return;
+      const iv = setInterval(async()=>{
+        if(done) { clearInterval(iv); return; }
+        if(Date.now()-start > maxMs){
+          clearInterval(iv);
+          if(text) text.textContent = "Сервер недоступен, перезапусти run.bat";
+          // меняем заголовок
+          const title = overlay.querySelector("div > div:nth-child(2)");
+          if(title) title.textContent = "Сервер недоступен";
+          const sub = overlay.querySelector("div > div:nth-child(3)");
+          if(sub) sub.textContent = "перезапусти run.bat";
+          console.error("[server] health timeout 15s — Сервер недоступен, перезапусти run.bat");
+          // оставляем оверлей видимым с ошибкой, но делаем кликабельным для повтора
+          overlay.style.cursor = "pointer";
+          overlay.title = "Клик чтобы повторить проверку";
+          overlay.addEventListener("click", ()=>{
+            overlay.style.cursor = "";
+            if(text) text.textContent = "Повторная проверка...";
+            location.reload();
+          }, {once:true});
+          return;
+        }
+        const elapsed = Math.round((Date.now()-start)/1000);
+        if(text) text.textContent = `Ожидание сервера ${elapsed}с...`;
+        await checkOnce();
+      }, pollMs);
+    })();
+  })();
   loadWaveLikes();
   loadHealth().then(() => {
     if (state.activeSection === "weekly") openWeekly();

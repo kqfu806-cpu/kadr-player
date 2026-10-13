@@ -74,9 +74,19 @@ if "%SILENT%"=="1" (
   start "" cmd /c "timeout /t 2 /nobreak >nul & start http://127.0.0.1:8000"
 )
 
+REM ЗАДАЧА4: проверка что сервер поднялся за 10 сек, лог в cache/server.log
+if not exist "cache" mkdir cache
+if not exist "cache\logs" mkdir cache\logs
+echo Проверка сервера (10 сек)...
+start "" cmd /c "timeout /t 10 /nobreak >nul & curl -s http://127.0.0.1:8000/api/health >nul 2>&1 || (echo. & echo Сервер не запустился, проверь cache/server.log & if exist cache\server.log type cache\server.log & pause)"
+
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 set "EC=%ERRORLEVEL%"
 echo.
-if not "%EC%"=="0" echo Exit code: %EC%
+if not "%EC%"=="0" (
+  echo Exit code: %EC%
+  echo Сервер не запустился, проверь cache/server.log
+  if exist cache\server.log type cache\server.log
+)
 pause
 exit /b %EC%
