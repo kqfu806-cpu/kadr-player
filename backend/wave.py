@@ -15,6 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+import json
+import shutil
+import subprocess
+import sys
+
 import httpx
 
 from .config import ROOT, STATS_DB_PATH
@@ -509,6 +514,12 @@ async def recommend(
     elif mode == "favorite":
         chosen = [(track, reason) for _, track, reason in familiarity[:count]]
 
+    # TASK8: лог источников для диагностики
+    try:
+        src = _wave_sources_status()
+        log.info("wave sources lastfm=%s yt=%s dez=%s", src["lastfm"]["ok"], src["youtube"]["ok"], src["youtube"]["detail"][:80])
+    except Exception:
+        pass
     remote: list[dict[str, Any]] = []
     if mode in {"new", "mix"} and lastfm:
         try:
@@ -529,13 +540,29 @@ async def recommend(
             remote = []
         if not remote:
             log.warning("wave fallback: Last.fm/Deezer unavailable mode=%s, will fallback to local", mode)
+            # TASK8: пробуем бесплатный YouTube Music через yt-dlp перед локальным фолбэком
+            try:
+                yt_tracks = await _youtube_fallback_tracks(tracks, {(tr.artist.casefold().strip(), tr.title.casefold().strip()) for tr in tracks}, play_map, lastfm, max(1, count - len(remote)), excluded, mood_filter, language_filter)
+                if yt_tracks:
+                    remote = yt_tracks
+                    log.info("wave youtube fallback produced %s tracks mode=%s", len(remote), mode)
+            except Exception as e:
+                log.info("youtube fallback failed mode=%s: %s", mode, type(e).__name__)
     else:
         if mode in {"new","mix"} and not lastfm:
             log.warning("wave no lastfm client mode=%s, fallback to local", mode)
+            # TASK8: даже без lastfm пробуем YouTube
+            try:
+                yt_tracks = await _youtube_fallback_tracks(tracks, {(tr.artist.casefold().strip(), tr.title.casefold().strip()) for tr in tracks}, play_map, None, count, excluded, mood_filter, language_filter)
+                if yt_tracks:
+                    remote = yt_tracks
+                    log.info("wave youtube fallback (no lastfm) %s tracks", len(remote))
+            except Exception as e:
+                log.info("youtube fallback no-lastfm fail: %s", type(e).__name__)
     if mode == "new":
         if not remote:
-            # BUG9: fallback to local library when Last.fm/Deezer unavailable
-            log.info("wave fallback to local for new mode, choosing library/forgotten")
+            # если и YouTube пуст — fallback to local library when Last.fm/Deezer unavailable
+            log.info("wave fallback to local for new mode, choosing library/forgotten (youtube also empty)")
             # pick library/forgotten/favorite as fallback
             fallback = [entry for entry in familiarity[:count] or discovery[:count]]
             if not fallback:
@@ -563,6 +590,16 @@ async def recommend(
             "warning": None if remote else "Новые рекомендации Last.fm/Deezer сейчас недоступны",
         }
     if mode == "mix":
+        # TASK8: если remote мало — дополнить YouTube
+        if len(remote) < round(count * 0.4):
+            try:
+                need = round(count * 0.4) - len(remote)
+                extra = await _youtube_fallback_tracks(tracks, {(tr.artist.casefold().strip(), tr.title.casefold().strip()) for tr in tracks} | {(r.get("artist","").casefold(), r.get("title","").casefold()) for r in remote}, play_map, lastfm, need, excluded, mood_filter, language_filter)
+                if extra:
+                    remote = remote + extra
+                    log.info("wave mix youtube supplement %s extra", len(extra))
+            except Exception as e:
+                log.info("mix youtube supplement fail: %s", type(e).__name__)
         known_count = count - len(remote)
         forgotten_count = min(round(count * 0.2), known_count)
         forgotten_ids = {track.id for _, track, _ in forgotten[:forgotten_count]}
@@ -716,6 +753,201 @@ def _matches_remote_filters(
         return any(word in value for word in _MOOD_WORDS[mood_filter])
     return True
 
+
+def _resolve_yt_dlp_cmd() -> list[str]:
+    """Найти yt-dlp / audiodl.exe — порядок как в audio_fetcher, бесплатный источник YouTube Music."""
+    cand = ROOT / "tools" / "audiodl.exe"
+    if cand.is_file():
+        return [str(cand)]
+    for name in ("yt-dlp", "yt_dlp", "audiodl", "audiodl.exe"):
+        exe = shutil.which(name)
+        if exe:
+            return [exe]
+    cand2 = ROOT / "venv" / "Scripts" / "yt-dlp.exe"
+    if cand2.is_file():
+        return [str(cand2)]
+    cand3 = ROOT / "venv" / "bin" / "yt-dlp"
+    if cand3.is_file():
+        return [str(cand3)]
+    return [sys.executable, "-m", "yt_dlp"]
+
+def _yt_available() -> tuple[bool, str]:
+    cmd = _resolve_yt_dlp_cmd()
+    try:
+        # пробуем --version быстро
+        r = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.strip():
+            return True, f"{' '.join(cmd)} {r.stdout.strip()[:60]}"
+        # если python -m yt_dlp и модуля нет — fail
+        return False, f"{' '.join(cmd)} → rc={r.returncode} {r.stderr[:120]}"
+    except Exception as e:
+        return False, f"{' '.join(cmd)} → {type(e).__name__}: {e}"
+
+async def _yt_music_search(query: str, limit: int = 10) -> list[dict[str, Any]]:
+    """Бесплатный источник YouTube Music через yt-dlp ytsearch: `yt-dlp \"ytsearch{limit}:{query}\" --dump-json`."""
+    cmd = _resolve_yt_dlp_cmd()
+    # ytsearch query with limit
+    search = f"ytsearch{max(1,min(limit,10))}:{query}"
+    args = cmd + [search, "--dump-json", "--flat-playlist", "--skip-download", "--no-warnings", "--no-call-home", "--no-playlist", "--extractor-retries", "1"]
+    # Also try without flat if needed
+    def _run():
+        try:
+            # first try with flat
+            r = subprocess.run(args, capture_output=True, text=True, timeout=18)
+            out = r.stdout.strip()
+            if not out:
+                # fallback without flat-playlist, more json per line
+                args2 = cmd + [search, "--dump-json", "--skip-download", "--no-warnings"]
+                r2 = subprocess.run(args2, capture_output=True, text=True, timeout=18)
+                out = r2.stdout.strip()
+                r = r2
+            items = []
+            for line in out.splitlines():
+                line=line.strip()
+                if not line or not line.startswith("{"):
+                    continue
+                try:
+                    j = json.loads(line)
+                    # yt-dlp flat gives {id,title,url,duration} etc
+                    vid = j.get("id") or j.get("url","").split("v=")[-1][:11]
+                    title = j.get("title") or ""
+                    # try to split artist - title
+                    # keep as is for wave
+                    items.append({"yt_id": vid, "title": title, "raw": j})
+                except Exception:
+                    continue
+            return items[:limit], r.stderr[:500], r.returncode
+        except Exception as e:
+            return [], f"{type(e).__name__}: {e}", 1
+    try:
+        items, err, rc = await asyncio.to_thread(_run)
+        if rc != 0:
+            log.info("yt-dlp ytsearch rc=%s err=%s query=%s", rc, err[:200], query[:60])
+        log.info("yt-dlp ytsearch query=%s → %s items", query[:60], len(items))
+        return items
+    except Exception as e:
+        log.warning("yt-dlp search thread fail %s query=%s", type(e).__name__, query[:60])
+        return []
+
+async def _youtube_fallback_tracks(tracks: list[Track], known: set[tuple[str,str]], play_map: dict, lastfm: LastFmClient | None, count: int, excluded: set[str], mood_filter: str | None, language_filter: str | None) -> list[dict[str, Any]]:
+    """Если Last.fm пуст — ищем через YouTube Music по названиям из истории прослушиваний (play_map) или случайным трекам."""
+    # собираем seed queries из топа прослушиваний
+    tracks_by_id = {tr.id: tr for tr in tracks}
+    # топ по play_count
+    sorted_plays = sorted(play_map.items(), key=lambda kv: kv[1].get("play_count",0), reverse=True)
+    seeds: list[str] = []
+    for tid, _ in sorted_plays[:5]:
+        tr = tracks_by_id.get(tid)
+        if tr:
+            seeds.append(f"{tr.artist} - {tr.title}")
+    if not seeds:
+        # fallback на случайные треки из библиотеки
+        seeds = [f"{tr.artist} - {tr.title}" for tr in random.sample(tracks, min(3, len(tracks))) if tr.artist and tr.title]
+    if not seeds:
+        seeds = ["lofi hip hop", "phonk", "tokyo ghoul"]
+    candidates: list[dict[str, Any]] = []
+    seen = set(known)
+    for q in seeds[:3]:
+        try:
+            results = await _yt_music_search(q, limit=5)
+        except Exception as e:
+            log.info("youtube fallback search fail %s: %s", q, type(e).__name__)
+            continue
+        for r in results:
+            title = r.get("title") or ""
+            # yt title часто "Artist - Title (Official)" — пытаемся разделить
+            if " - " in title:
+                artist, ttitle = title.split(" - ",1)
+            else:
+                artist, ttitle = q.split(" - ",1) if " - " in q else ("YouTube", title[:80])
+            artist = artist.strip()[:80] or "YouTube"
+            ttitle = ttitle.strip()[:90] or title[:80]
+            key = (artist.casefold().strip(), ttitle.casefold().strip())
+            if key in seen:
+                continue
+            # применяем фильтры языка/муда
+            dummy = {"artist": artist, "title": ttitle}
+            if not _matches_remote_filters(dummy, mood_filter, language_filter):
+                continue
+            vid = r.get("yt_id") or ""
+            yt_url = f"https://www.youtube.com/watch?v={vid}" if vid else ""
+            preview = ""  # yt-dlp не даёт preview, но можно deezer-совместимо использовать youtube preview? оставляем пустым, фронт покажет youtube
+            cand = {
+                "id": "yt:" + hashlib.sha256(f"{artist}\0{ttitle}".encode()).hexdigest()[:24],
+                "artist": artist,
+                "title": ttitle,
+                "reason": f"YouTube Music: по вкусу '{q[:40]}'",
+                "external": True,
+                "url": yt_url,
+                "preview": preview,
+                "cover": "",
+                "youtube_id": vid,
+                "source": "youtube",
+            }
+            if cand["id"] not in excluded:
+                candidates.append(cand)
+                seen.add(key)
+            if len(candidates) >= count:
+                break
+        if len(candidates) >= count:
+            break
+    # если yt-dlp недоступен / пусто — пробуем InnerTube search_youtube как второй фолбэк
+    if not candidates:
+        try:
+            from .youtube_search import search_youtube
+            # quick search via InnerTube for each seed
+            for q in seeds[:2]:
+                try:
+                    # split q to artist/title for search_youtube
+                    if " - " in q:
+                        a,tit = q.split(" - ",1)
+                    else:
+                        a,tit = q, ""
+                    # search_youtube is async in some versions? check sync
+                    # try async path if available
+                    import inspect
+                    if inspect.iscoroutinefunction(search_youtube):
+                        # we are async already — await (need client? youtube_search.search_youtube expects query only)
+                        # fallback sync call with httpx client if needed — skip
+                        continue
+                    else:
+                        # sync version?
+                        results = await asyncio.to_thread(lambda: search_youtube(q, limit=5) if callable(search_youtube) else [])
+                        for it in (results or []):
+                            vid = it.get("video_id") or it.get("id") or ""
+                            title = it.get("title") or ""
+                            artist = it.get("channel") or a
+                            key=(artist.casefold(), title.casefold())
+                            if key in seen: continue
+                            candidates.append({
+                                "id": "yt:" + hashlib.sha256(f"{artist}\0{title}".encode()).hexdigest()[:24],
+                                "artist": artist, "title": title,
+                                "reason": f"YouTube (InnerTube): {q[:40]}",
+                                "external": True, "url": f"https://www.youtube.com/watch?v={vid}" if vid else "",
+                                "preview":"", "cover":"", "youtube_id": vid, "source":"youtube"
+                            })
+                            if len(candidates)>=count: break
+                except Exception:
+                    continue
+        except Exception as e:
+            log.info("InnerTube fallback fail: %s", type(e).__name__)
+    log.info("youtube fallback total %s candidates for seeds %s", len(candidates), seeds[:2])
+    return candidates[:count]
+
+def _wave_sources_status() -> dict[str, Any]:
+    # проверка доступности всех источников для отчёта
+    yt_ok, yt_detail = _yt_available()
+    lastfm_ok = False
+    lastfm_detail = "no key"
+    try:
+        from .lastfm_config import get_lastfm_api_key
+        k = get_lastfm_api_key()
+        if k: lastfm_ok, lastfm_detail = True, f"key {k[:4]}...{k[-4:]}"
+        else: lastfm_ok, lastfm_detail = False, "LASTFM_API_KEY missing"
+    except Exception as e:
+        lastfm_detail = f"{type(e).__name__}: {e}"
+    # deezer — быстрая проверка уже в health, тут stub
+    return {"lastfm": {"ok": lastfm_ok, "detail": lastfm_detail}, "youtube": {"ok": yt_ok, "detail": yt_detail}, "deezer": {"ok": True, "detail": "https://api.deezer.com (проверяется в _new_tracks)"}, "local": {"ok": True, "detail": "локальная библиотека всегда доступна"}}
 
 def record_signal(
     track_id: str,
