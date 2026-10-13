@@ -1709,7 +1709,7 @@ const clipCache = new Map();
       return;
     }
     try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
       const src = audioCtx.createMediaElementSource(audio);
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 128;
@@ -2355,7 +2355,7 @@ const clipCache = new Map();
 
     function ensureAudioCtx() {
       if (audioCtx) return audioCtx;
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
       dest = audioCtx.createMediaStreamDestination();
       // Deck A chain
       sourceA = audioCtx.createMediaElementSource(audioA);
@@ -3708,14 +3708,15 @@ const clipCache = new Map();
         return false;
       }
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+        micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false, latency:0.01}});
         console.log('[karaoke] mic granted');
+        try { const tr = micStream.getAudioTracks()[0]; if(tr) console.log('[karaoke] getSettings', JSON.stringify(tr.getSettings())); } catch(e){ console.log('[karaoke] getSettings err', e); }
         // b) если ctx уже есть — использовать, иначе создать
         if (micCtx && micCtx.state !== 'closed') {
           console.log('[karaoke] context reused', micCtx.state);
         } else {
-          micCtx = new (window.AudioContext || window.webkitAudioContext)();
-          console.log('[karaoke] context created', micCtx.state);
+          micCtx = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
+          console.log('[karaoke] context created', micCtx.state, 'sampleRate', micCtx.sampleRate, 'baseLatency', micCtx.baseLatency ?? 'n/a');
         }
         // c) КРИТИЧНО — resume без этого в браузере звук не пойдёт
         try { await micCtx.resume(); } catch(e) { console.log('[karaoke] resume error', e); }
@@ -4146,7 +4147,7 @@ const clipCache = new Map();
     waveCache[trackId] = true;
     try {
       const buf = await fetch("/api/stream/" + trackId).then((r) => r.arrayBuffer());
-      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const ac = new (window.AudioContext || window.webkitAudioContext)({latencyHint:'interactive', sampleRate:48000});
       const audioBuf = await ac.decodeAudioData(buf.slice(0));
       const ch = audioBuf.getChannelData(0);
       const n = 512;
