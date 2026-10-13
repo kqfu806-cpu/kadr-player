@@ -4,6 +4,28 @@
   "use strict";
 
   const $ = (id) => document.getElementById(id);
+  // TASK5: перехватить console.error и window.onerror → POST /api/log/client-error
+  (function(){
+    try {
+      const origError = console.error;
+      console.error = function(...args){
+        try {
+          fetch('/api/log/client-error', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:'console.error', args: args.map(a=> String(a)), url: location.href, time: new Date().toISOString()}) }).catch(()=>{});
+        } catch(_){}
+        return origError.apply(console, args);
+      };
+      window.onerror = function(msg, src, line, col, err){
+        try {
+          fetch('/api/log/client-error', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:'onerror', msg, src, line, col, stack: err && err.stack, time: new Date().toISOString()}) }).catch(()=>{});
+        } catch(_){}
+      };
+      window.addEventListener('unhandledrejection', function(e){
+        try {
+          fetch('/api/log/client-error', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:'unhandledrejection', reason: String(e.reason), time: new Date().toISOString()}) }).catch(()=>{});
+        } catch(_){}
+      });
+    } catch(_){}
+  })();
   const esc = (s) =>
     String(s ?? "")
       .replace(/&/g, "&amp;")

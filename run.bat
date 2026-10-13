@@ -65,6 +65,8 @@ timeout /t 5 /nobreak >nul
 REM запуск — uvicorn + браузер по умолчанию
 echo [3/3] Starting http://127.0.0.1:8000
 echo Uvicorn running on http://127.0.0.1:8000
+echo Логи: %~dp0cache\logs\
+echo Логи: C:\Users\%USERNAME%\Downloads\kadr-player\cache\logs\
 REM открыть браузер через 2 сек в фоне (если не --silent)
 if "%SILENT%"=="1" (
   echo Silent mode -- browser not opened ^(run with --silent^)

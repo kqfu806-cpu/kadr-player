@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import datetime
 import html
 import io
 import logging
@@ -14,6 +15,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -133,6 +135,53 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# TASK5: логи в cache/logs/
+LOGS_DIR = ROOT / "cache" / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+for _lf in ["api.log", "client-errors.log", "ollama.log"]:
+    try:
+        (LOGS_DIR / _lf).touch(exist_ok=True)
+    except Exception:
+        pass
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        # even on exception, log and re-raise
+        duration = int((time.time() - start) * 1000)
+        try:
+            with open(LOGS_DIR / "api.log", "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {request.method} {request.url.path} 500 {duration}ms\n")
+        except Exception:
+            pass
+        raise
+    duration = int((time.time() - start) * 1000)
+    try:
+        with open(LOGS_DIR / "api.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {request.method} {request.url.path} {response.status_code} {duration}ms\n")
+    except Exception:
+        pass
+    return response
+
+@app.post("/api/log/client-error")
+async def log_client_error(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        try:
+            data = {"raw": (await request.body()).decode("utf-8", errors="ignore")[:2000]}
+        except Exception:
+            data = {"error": "no body"}
+    try:
+        with open(LOGS_DIR / "client-errors.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {data}\n")
+    except Exception:
+        pass
+    return {"status": "ok"}
 
 
 @app.exception_handler(sqlite3.OperationalError)
