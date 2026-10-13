@@ -362,8 +362,8 @@
     </div>
 
     <button class="icon-btn sm rail-open hidden" id="btnExpand" title="Показать список">›</button>
-
-    <div id="djStrip">
+<footer class="player glass glare">
+  <div id="djStrip">
   <div class="dj-strip-deck" id="djStripDeckA">
     <div class="dj-strip-head"><span class="dj-strip-label">DECK A</span><span class="dj-strip-bpm" id="djStripBpmA">— BPM</span></div>
     <div class="dj-strip-title-wrap" title="Трек Deck A — скролл если длинное название"><span class="dj-strip-title" id="djStripTitleA">Deck A — пусто</span></div>
@@ -394,8 +394,6 @@
   </div>
   <button class="dj-strip-btn dj-strip-expand" id="djStripExpand" type="button" title="Развернуть полную DJ-панель">⛶</button>
 </div>
-
-<footer class="player glass glare">
   <!-- БАГ6: перенесено в нижнюю панель — часть flex-контейнера player -->
   <div class="media-toolbar" id="mediaToolbar">
                 <button class="btn ghost display-mode-toggle" id="displayModeToggle" type="button" title="Режим отображения">🎬 Клип+текст</button>
@@ -409,6 +407,7 @@
                 <button class="btn ghost karaoke-toggle" id="karaokeToggle" type="button" title="Караоке пословная подсветка">Караоке: Вкл</button>
               </div>
 
+      <div class="player-content">
       <audio id="audio" preload="metadata" crossorigin="anonymous"></audio>
 
       <div class="player-left">
@@ -482,6 +481,7 @@
           </div>
         </div>
         <div class="now-reason muted" id="nowReason"></div>
+      </div>
       </div>
     </footer>
   </div>

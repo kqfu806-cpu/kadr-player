@@ -115,7 +115,6 @@ body::after {
   grid-template-columns: minmax(0, 1fr);
   gap: clamp(0.4rem, 0.8vh, 0.75rem);
   padding: clamp(0.45rem, 1vh, 0.85rem);
-  padding-bottom: 130px;
   overflow: hidden;
 }
 
@@ -400,7 +399,7 @@ html[data-accent-custom="true"] .btn.primary {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  padding-bottom: 130px;
+  
 }
 html.collapsed .layout {
   grid-template-columns: 0 0.4rem minmax(0, 1fr);
@@ -1121,12 +1120,19 @@ html:not(.collapsed) .rail-open { display: none !important; }
 
 /* Нижний плеер — всегда целиком в сетке, три колонки */
 .player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: clamp(0.45rem, 1.1vh, 0.8rem) clamp(0.9rem, 2vw, 1.6rem);
+  z-index: 5;
+  min-height: 0;
+}
+.player-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr);
   align-items: center;
   gap: clamp(0.6rem, 1.5vw, 1.6rem);
-  padding: clamp(0.45rem, 1.1vh, 0.8rem) clamp(0.9rem, 2vw, 1.6rem);
-  z-index: 5;
+  width: 100%;
   min-height: 0;
 }
 .player-left, .player-right { min-width: 0; }
@@ -2237,21 +2243,22 @@ html[data-theme="anime"] .similar-avatar-img {
   .dj-strip-mixer { flex: 1 1 100%; order: 3; }
 }
 #djStrip {
-  position: fixed;
-  bottom: 90px;
-  left: 0;
-  right: 0;
-  height: 110px;
+  width: 100%;
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.6rem 1rem;
-  backdrop-filter: blur(20px);
-  background: rgba(20,20,30,0.85);
-  border-top: 1px solid rgba(255,107,157,0.25);
-  z-index: 99;
+  gap: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid rgba(255,107,157,0.22);
   flex-wrap: nowrap;
   overflow: hidden;
+  background: transparent;
+  backdrop-filter: none;
+  border-top: none;
+  position: static;
+  bottom: auto;
+  left: auto;
+  right: auto;
+  height: auto;
+  z-index: auto;
 }
 #djStrip.hidden { display: none !important; }
 
@@ -2358,7 +2365,7 @@ html[data-theme="anime"] .similar-avatar-img {
 .player { z-index: 101; position: relative; }
 html:has(#djPanel:not(.hidden)) #djStrip { display: none !important; }
 @media (max-width: 900px) {
-  #djStrip { flex-direction: row; height: 110px; bottom: 70px; padding: 0.4rem 0.6rem; gap: 0.5rem; flex-wrap: nowrap; overflow-x: auto; }
+  #djStrip { flex-direction: row; height: auto; padding: 0.4rem 0.6rem; gap: 0.5rem; flex-wrap: nowrap; overflow-x: auto; }
   .dj-strip-deck { flex: 1 1 auto; min-width: 0; }
   .dj-strip-title { max-width: 90px; font-size: 0.68rem; }
 }
