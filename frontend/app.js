@@ -4873,6 +4873,41 @@ const clipCache = new Map();
       try{ localStorage.setItem(animeThemeKey, preset); }catch(_){}
       // подсветка
       document.querySelectorAll(".theme-card").forEach(b=> b.classList.toggle("is-active", b.dataset.animeTheme===preset));
+      // БАГ2 FIX: если wallpaper.jpg пустой (0 байт) — использовать градиент
+      (async()=>{
+        try{
+          const cur = document.documentElement.getAttribute("data-theme");
+          if(!cur || !cur.startsWith("anime-")) return;
+          let base="";
+          if(cur==="anime-titan-dark") base="/static/assets/anime/themes/attack-on-titan/dark";
+          else if(cur==="anime-titan-light") base="/static/assets/anime/themes/attack-on-titan/light";
+          else if(cur==="anime-berserk-dark") base="/static/assets/anime/themes/berserk/dark";
+          else if(cur==="anime-berserk-light") base="/static/assets/anime/themes/berserk/light";
+          else if(cur==="anime-overlord-dark") base="/static/assets/anime/themes/overlord/dark";
+          else if(cur==="anime-overlord-light") base="/static/assets/anime/themes/overlord/light";
+          else if(cur==="anime-diary-dark") base="/static/assets/anime/themes/future-diary/dark";
+          else if(cur==="anime-diary-light") base="/static/assets/anime/themes/future-diary/light";
+          else return;
+          const url = base + "/wallpaper.jpg";
+          try{
+            const r = await fetch(url, {method:'HEAD'});
+            const len = r.headers.get('content-length');
+            const size = len ? parseInt(len,10) : null;
+            if(!r.ok || size===0){
+              console.warn('[anime-theme] wallpaper empty or missing, fallback to gradient', url, 'size', size);
+              // убираем инлайновый wallpaper, пусть CSS покажет градиент
+              document.documentElement.style.setProperty('--anime-wallpaper', 'var(--anime-gradient)');
+            } else {
+              // файл есть и не пустой — сбрасываем инлайн чтобы CSS из темы сработал (url wallpaper.jpg)
+              document.documentElement.style.removeProperty('--anime-wallpaper');
+              console.log('[anime-theme] wallpaper ok', url, 'size', size);
+            }
+          }catch(e){
+            console.warn('[anime-theme] wallpaper check fail', e.message);
+            document.documentElement.style.setProperty('--anime-wallpaper', 'var(--anime-gradient)');
+          }
+        }catch(_){}
+      })();
       // wallpaper для аниме-темы — ставим основной wallpaper.jpg, сброс индекса
       try{
         const cur = document.documentElement.getAttribute("data-theme");
@@ -5041,7 +5076,10 @@ const clipCache = new Map();
       let exists=false;
       try{
         const r=await fetch(url, {method:'HEAD'});
-        exists=r.ok;
+        const len = r.headers.get('content-length');
+        const size = len ? parseInt(len,10) : null;
+        exists = r.ok && size!==0;
+        if(size===0) console.warn('[anime-theme-wallpaper] file empty 0 bytes', url);
       }catch(_){ exists=false; }
       if(exists){
         document.documentElement.style.setProperty('--anime-wallpaper', `url("${url}")`);
@@ -5050,10 +5088,13 @@ const clipCache = new Map();
         // fallback: проверить основной wallpaper.jpg, иначе градиент
         try{
           const r2=await fetch(fallback, {method:'HEAD'});
-          if(r2.ok){
+          const len2 = r2.headers.get('content-length');
+          const size2 = len2 ? parseInt(len2,10) : null;
+          if(r2.ok && size2!==0){
             document.documentElement.style.setProperty('--anime-wallpaper', `url("${fallback}")`);
-            console.log('[anime-theme-wallpaper] fallback to', fallback);
+            console.log('[anime-theme-wallpaper] fallback to', fallback, 'size', size2);
           } else {
+            if(size2===0) console.warn('[anime-theme-wallpaper] fallback empty 0 bytes', fallback);
             const builtIn = animeBuiltIn[idx % animeBuiltIn.length];
             document.documentElement.style.setProperty('--anime-wallpaper', builtIn);
             console.log('[anime-theme-wallpaper] fallback built-in');

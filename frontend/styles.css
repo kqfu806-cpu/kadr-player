@@ -2910,6 +2910,15 @@ html[data-theme="anime-diary-light"] body {
   transition: background-image 0.8s ease;
 }
 
+/* БАГ2 FIX: wildcard для всех anime-* тем, чтобы не зависеть от перечисления, и fallback если файл пустой */
+html[data-theme^="anime-"] body {
+  background-image: var(--anime-wallpaper, var(--anime-gradient));
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+
 /* ЗАДАЧА3: сетка аниме-тем + карточки */
 .anime-themes-grid {
   display: grid;
