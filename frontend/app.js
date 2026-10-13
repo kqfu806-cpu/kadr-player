@@ -4734,16 +4734,20 @@ const clipCache = new Map();
 
   // FIX Bug10: proper light theme (#f5f5f7 bg, #1a1a1a text, blue accent), 6-8 accent colors, opacity slider, localStorage persist
   function applyTheme(t) {
-    // ЗАДАЧА3: аниме-подтемы сохраняют свой data-theme, не форсим dark
-    if (String(t).startsWith("anime-titan") || String(t).startsWith("anime-berserk") || String(t).startsWith("anime-overlord") || String(t).startsWith("anime-diary")) {
+    // БАГ1 FIX: все темы кроме light/dark ставить КАК ЕСТЬ, без преобразования в dark
+    // anime, anime-*, cyberpunk, samurai, dragon, auto — не форсим dark
+    const tt = String(t);
+    if (tt === "anime" || tt.startsWith("anime-") || tt === "cyberpunk" || tt === "samurai" || tt === "dragon" || tt === "auto") {
       document.documentElement.setAttribute("data-theme", t);
       try { document.body && document.body.setAttribute("data-theme", t); } catch(_){}
       try { localStorage.setItem("kadr-theme", t); } catch(_){}
-      try { localStorage.setItem(presetKey, t); localStorage.setItem("kadr-anime-theme", t); } catch(_){}
-      // обновляем активные кнопки
+      // presetKey доступен только внутри themeToggle, поэтому пробуем оба ключа
+      try { localStorage.setItem("kadr-theme-preset", t); } catch(_){}
+      try { localStorage.setItem("kadr-anime-theme", t); } catch(_){}
       document.querySelectorAll(".theme-preset-btn").forEach(b=> b.classList.toggle("is-active", b.dataset.preset===t));
       document.querySelectorAll(".theme-card").forEach(b=> b.classList.toggle("is-active", b.dataset.animeTheme===t));
-      console.log('[theme] apply anime sub-theme', t);
+      console.log('[theme] apply theme as-is', t);
+      // для anime-* также обновить --anime-wallpaper если нужно, но CSS уже содержит url
       return;
     }
     const theme = t === "light" ? "light" : "dark";
