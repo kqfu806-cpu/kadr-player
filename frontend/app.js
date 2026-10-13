@@ -4289,6 +4289,40 @@ const clipCache = new Map();
       setInterval(refreshNetwork, 5*60*1000);
     })();
 
+    // TASK2: Навигация — глобальные кнопки шапки (Сменить папку, тема) должны работать с любой вкладки
+    // Делаем applyPreset/applyTheme глобальными, и добавляем делегированнную страховку на клики в шапке
+    try {
+      window.applyPreset = applyPreset;
+      window.applyTheme = applyTheme;
+      window.applyThemeMode = applyThemeMode;
+      window.applyWallpaper = applyWallpaper;
+      // expose for console debug
+      console.log('[nav] theme handlers global', typeof window.applyPreset, typeof window.applyTheme);
+    } catch(_) {}
+    // Fallback: если прямые листенеры не сработали (вкладка Статистика/Профиль скрывает контент), делегируем на document
+    document.addEventListener('click', (e)=>{
+      const browse = e.target.closest && e.target.closest('#btnBrowse, #btnBrowseSettings, #btnBrowseHero');
+      if(browse){ e.preventDefault(); try{ openModal(); }catch(_){} return; }
+      const themeBtn = e.target.closest && e.target.closest('#btnTheme');
+      if(themeBtn){
+        // не мешаем прямому обработчику, но если он не сработал — переключаем тему
+        // проверка: если уже внутри themeToggle обработчика, он сделает stopPropagation, сюда не дойдёт
+        // поэтому это страховка только если прямой не attached
+        if(!themeBtn._kadrHandled){
+          e.preventDefault();
+          try{
+            const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+            if(window.applyThemeMode) window.applyThemeMode(cur === 'dark' ? 'light' : 'dark');
+            else if(window.applyPreset) window.applyPreset(cur === 'dark' ? 'light' : 'dark');
+          }catch(_){}
+        }
+      }
+    }, true);
+    // mark direct handler attached flag
+    try { const bt=document.getElementById('btnTheme'); if(bt) bt._kadrHandled=true; } catch(_){}
+    // также гарантируем что openModal глобален
+    try { window.openModal = openModal; } catch(_){}
+
     // TASK1: Диагностика — страница в настройках (кнопка в themeSettings), таблица подсистема/статус/детали + экспорт + лог
     (function diagnosticsPage(){
       const modal = document.getElementById("diagnosticsModal");
