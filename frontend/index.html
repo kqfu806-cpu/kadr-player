@@ -380,6 +380,43 @@
 
     <button class="icon-btn sm rail-open hidden" id="btnExpand" title="Показать список">›</button>
 
+    <!-- ЗАДАЧА5: DJ компактная панель — постоянная, над плеером, видна с библиотекой -->
+    <div id="djStrip" class="dj-strip hidden glass glare" aria-label="DJ компактная панель">
+      <div class="dj-strip-inner">
+        <section class="dj-strip-deck" data-strip-deck="A">
+          <div class="dj-strip-head"><span class="dj-strip-label">Deck A</span><span class="dj-strip-title" id="djStripATitle">—</span></div>
+          <div class="dj-strip-progress"><div class="dj-strip-progress-fill" id="djStripAProgress"></div></div>
+          <div class="dj-strip-controls">
+            <button class="icon-btn sm" id="djStripPlayA" type="button" title="Play/Pause Deck A">▶</button>
+            <div class="dj-knob-wrap small">
+              <div class="dj-knob small" id="djStripKnobA" data-strip-pitch="A" data-value="0" tabindex="0" role="slider" aria-valuemin="-10" aria-valuemax="10" aria-valuenow="0" aria-label="Pitch A"><div class="knob-pointer"></div></div>
+              <span class="dj-knob-value small" id="djStripPitchAValue">0%</span>
+            </div>
+            <input type="range" id="djStripPitchA" min="-10" max="10" value="0" step="0.5" hidden>
+          </div>
+        </section>
+        <div class="dj-strip-mixer">
+          <label class="dj-strip-xf-label">Crossfader</label>
+          <input type="range" id="djStripCrossfader" min="0" max="100" value="50" step="1" class="dj-strip-crossfader">
+          <div class="dj-strip-xf-hint"><span>A</span><span>B</span></div>
+        </div>
+        <section class="dj-strip-deck" data-strip-deck="B">
+          <div class="dj-strip-head"><span class="dj-strip-label">Deck B</span><span class="dj-strip-title" id="djStripBTitle">—</span></div>
+          <div class="dj-strip-progress"><div class="dj-strip-progress-fill" id="djStripBProgress"></div></div>
+          <div class="dj-strip-controls">
+            <button class="btn ghost sm" id="djStripLoadB" type="button" title="Загрузить трек в Deck B">Загрузить в B</button>
+            <button class="icon-btn sm" id="djStripPlayB" type="button" title="Play/Pause Deck B">▶</button>
+            <div class="dj-knob-wrap small">
+              <div class="dj-knob small" id="djStripKnobB" data-strip-pitch="B" data-value="0" tabindex="0" role="slider" aria-valuemin="-10" aria-valuemax="10" aria-valuenow="0" aria-label="Pitch B"><div class="knob-pointer"></div></div>
+              <span class="dj-knob-value small" id="djStripPitchBValue">0%</span>
+            </div>
+            <input type="range" id="djStripPitchB" min="-10" max="10" value="0" step="0.5" hidden>
+          </div>
+        </section>
+        <button class="btn ghost dj-strip-expand" id="djStripExpand" type="button" title="Развернуть полную DJ-панель">Развернуть ↗</button>
+      </div>
+    </div>
+
     <footer class="player glass glare">
       <audio id="audio" preload="metadata" crossorigin="anonymous"></audio>
 

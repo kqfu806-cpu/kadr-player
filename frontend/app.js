@@ -2447,9 +2447,20 @@ const clipCache = new Map();
     }
     setupKnobs();
 
+    const djStrip = document.getElementById("djStrip");
+    const djStripExpand = document.getElementById("djStripExpand");
     function openDJ(){ djPanel.classList.remove("hidden"); }
     function closeDJ(){ djPanel.classList.add("hidden"); }
-    btnDJ.addEventListener("click", openDJ);
+    function toggleStrip(){
+      if(!djStrip){ openDJ(); return; }
+      const hidden = djStrip.classList.toggle("hidden");
+      try{ localStorage.setItem("kadr-dj-strip-visible", hidden ? "0" : "1"); }catch(_){}
+      btnDJ.classList.toggle("on", !hidden);
+      btnDJ.setAttribute("aria-pressed", String(!hidden));
+    }
+    try{ if(localStorage.getItem("kadr-dj-strip-visible")==="1"){ djStrip?.classList.remove("hidden"); btnDJ.classList.add("on"); btnDJ.setAttribute("aria-pressed","true"); } }catch(_){}
+    btnDJ.addEventListener("click", toggleStrip);
+    djStripExpand?.addEventListener("click", openDJ);
     djClose?.addEventListener("click", closeDJ);
     djPanel.addEventListener("click", e=>{ if(e.target===djPanel) closeDJ(); });
 
@@ -2744,6 +2755,141 @@ const clipCache = new Map();
       });
     }
     enhanceDrop("A"); enhanceDrop("B");
+
+    // ЗАДАЧА5: компактная DJ панель — связываем Deck A с основным плеером, Deck B отдельный audio, crossfader, pitch
+    (function initDjStrip(){
+      const audio = document.getElementById("audio");
+      const strip = document.getElementById("djStrip");
+      if(!strip || !audio) return;
+      const stripATitle = document.getElementById("djStripATitle");
+      const stripBTitle = document.getElementById("djStripBTitle");
+      const stripAProg = document.getElementById("djStripAProgress");
+      const stripBProg = document.getElementById("djStripBProgress");
+      const stripPlayA = document.getElementById("djStripPlayA");
+      const stripPlayB = document.getElementById("djStripPlayB");
+      const stripLoadB = document.getElementById("djStripLoadB");
+      const stripPitchA = document.getElementById("djStripPitchA");
+      const stripPitchB = document.getElementById("djStripPitchB");
+      const stripKnobA = document.getElementById("djStripKnobA");
+      const stripKnobB = document.getElementById("djStripKnobB");
+      const stripCross = document.getElementById("djStripCrossfader");
+      function syncStripA(){
+        try{
+          const t = (typeof currentTrack === 'function' ? currentTrack() : null);
+          if(stripATitle) stripATitle.textContent = t ? `${t.artist} — ${t.title}` : "—";
+          if(stripPlayA) stripPlayA.textContent = (typeof state !== 'undefined' && state.playing) ? "⏸" : "▶";
+        }catch(_){}
+      }
+      function syncStripB(){
+        try{
+          const t = deckState.B.track;
+          if(stripBTitle) stripBTitle.textContent = t ? `${t.artist||""} — ${t.title||t.id}`.trim() : "—";
+          if(stripPlayB) stripPlayB.textContent = audioB && !audioB.paused ? "⏸" : "▶";
+        }catch(_){}
+      }
+      setInterval(()=>{
+        syncStripA(); syncStripB();
+        try{
+          const d = audio.duration || 0;
+          const cur = audio.currentTime || 0;
+          if(stripAProg && d>0) stripAProg.style.width = `${(cur/d)*100}%`;
+          const dB = audioB.duration || 0;
+          const curB = audioB.currentTime || 0;
+          if(stripBProg && dB>0) stripBProg.style.width = `${(curB/dB)*100}%`;
+        }catch(_){}
+      }, 300);
+      stripPlayA?.addEventListener("click", ()=>{
+        try{
+          if(typeof togglePlay === 'function') togglePlay();
+          else { if(audio.paused) audio.play(); else audio.pause(); }
+        }catch(e){ if(audio.paused) { try{audio.play();}catch(_){}} else audio.pause(); }
+      });
+      function setupStripPitch(knob, input, audioEl, valueEl){
+        if(!knob || !input || !audioEl) return;
+        function valToAngle(v){ const min=-10,max=10; const t=(v-min)/(max-min); return -135 + t*270; }
+        function sync(){
+          const v=Number(input.value);
+          knob.dataset.value=String(v);
+          knob.style.transform=`rotate(${valToAngle(v)}deg)`;
+          knob.setAttribute('aria-valuenow', String(v));
+          if(valueEl) valueEl.textContent=(v>0?"+":"")+v+"%";
+          try{ audioEl.playbackRate = 1 + v/100; }catch(_){}
+        }
+        sync();
+        input.addEventListener("input", sync);
+        let startY=0,startVal=0,drag=false;
+        knob.addEventListener("mousedown", e=>{ e.preventDefault(); drag=true; startY=e.clientY; startVal=Number(input.value); document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU); });
+        knob.addEventListener("touchstart", e=>{ const t=e.touches[0]; drag=true; startY=t.clientY; startVal=Number(input.value); document.addEventListener("touchmove", onT,{passive:false}); document.addEventListener("touchend", onTE); },{passive:false});
+        function onM(e){ if(!drag) return; const delta=startY-e.clientY; let v=startVal+delta*0.1; v=Math.round(v*2)/2; v=Math.min(10,Math.max(-10,v)); input.value=String(v); input.dispatchEvent(new Event("input",{bubbles:true})); sync(); }
+        function onU(){ drag=false; document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); }
+        function onT(e){ if(!drag) return; e.preventDefault(); const t=e.touches[0]; const delta=startY-t.clientY; let v=startVal+delta*0.1; v=Math.round(v*2)/2; v=Math.min(10,Math.max(-10,v)); input.value=String(v); input.dispatchEvent(new Event("input",{bubbles:true})); sync(); }
+        function onTE(){ drag=false; document.removeEventListener("touchmove",onT); document.removeEventListener("touchend",onTE); }
+        knob.addEventListener("keydown", e=>{
+          let v=Number(input.value);
+          if(e.key==="ArrowUp"||e.key==="ArrowRight"){ v+=0.5; e.preventDefault(); }
+          else if(e.key==="ArrowDown"||e.key==="ArrowLeft"){ v-=0.5; e.preventDefault(); }
+          else return;
+          v=Math.min(10,Math.max(-10, Math.round(v*2)/2)); input.value=String(v); input.dispatchEvent(new Event("input",{bubbles:true})); sync();
+        });
+      }
+      setupStripPitch(stripKnobA, stripPitchA, audio, document.getElementById("djStripPitchAValue"));
+      setupStripPitch(stripKnobB, stripPitchB, audioB, document.getElementById("djStripPitchBValue"));
+      function updateStripCross(){
+        const v = Number(stripCross?.value||50)/100;
+        const mainCross = document.getElementById("crossfader");
+        if(mainCross && mainCross.value !== String(stripCross.value)){ mainCross.value=String(stripCross.value); try{ mainCross.dispatchEvent(new Event("input",{bubbles:true})); }catch(_){} }
+        const gA = Math.cos(v * Math.PI/2);
+        const gB = Math.cos((1 - v) * Math.PI/2);
+        try{
+          if(typeof gainA !== 'undefined' && gainA && typeof gainB !== 'undefined' && gainB){
+            try{ gainA.gain.value = gA; }catch(_){}
+            try{ gainB.gain.value = gB; }catch(_){}
+            // also update main audio volume via fallback when WebAudio not yet init
+            try{ audio.volume = Math.max(0, Math.min(1, gA)); }catch(_){}
+            try{ audioB.volume = Math.max(0, Math.min(1, gB)); }catch(_){}
+          } else {
+            audio.volume = Math.max(0, Math.min(1, gA));
+            audioB.volume = Math.max(0, Math.min(1, gB));
+          }
+        }catch(_){
+          try{ audio.volume = Math.max(0, Math.min(1, gA)); }catch(_){}
+          try{ audioB.volume = Math.max(0, Math.min(1, gB)); }catch(_){}
+        }
+      }
+      stripCross?.addEventListener("input", updateStripCross);
+      // sync when main crossfader changes
+      document.getElementById("crossfader")?.addEventListener("input", ()=>{
+        const mc = document.getElementById("crossfader");
+        if(stripCross && mc) stripCross.value = mc.value;
+      });
+      stripLoadB?.addEventListener("click", ()=>{ try{ openDjLibrary("B"); }catch(e){ try{ window.__dj?.openDjLibrary("B"); }catch(_){}} });
+      stripPlayB?.addEventListener("click", async ()=>{
+        try{
+          if(audioB.paused){ await audioB.play(); } else audioB.pause();
+        }catch(e){ try{ if(audioB.paused) await audioB.play(); }catch(_){} }
+        syncStripB();
+      });
+      audio.addEventListener("play", syncStripA);
+      audio.addEventListener("pause", syncStripA);
+      audio.addEventListener("timeupdate", ()=>{
+        try{
+          const d = audio.duration || 0;
+          const cur = audio.currentTime || 0;
+          if(stripAProg && d>0) stripAProg.style.width = `${(cur/d)*100}%`;
+        }catch(_){}
+      });
+      audioB.addEventListener("play", syncStripB);
+      audioB.addEventListener("pause", syncStripB);
+      audioB.addEventListener("timeupdate", ()=>{
+        try{
+          const dB = audioB.duration || 0;
+          const curB = audioB.currentTime || 0;
+          if(stripBProg && dB>0) stripBProg.style.width = `${(curB/dB)*100}%`;
+        }catch(_){}
+      });
+      // initial sync
+      syncStripA(); syncStripB();
+    })();
 
     // expose for tests
     window.__dj = {loadDeck, deckState, openDjLibrary, saveTransition};
