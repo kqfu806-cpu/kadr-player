@@ -2,6 +2,10 @@
 REM TASK2 stable: cd /d "%~dp0" + venv create/activate + pip + uvicorn, no splash/Edge
 REM Kurymdyk — только сайт. Двойной клик → браузер http://127.0.0.1:8000
 setlocal EnableExtensions
+REM --silent: не открывать браузер (для автозапуска)
+set "SILENT=0"
+for %%A in (%*) do if /I "%%~A"=="--silent" set "SILENT=1"
+if "%~1"=="--silent" set "SILENT=1"
 cd /d "%~dp0"
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
@@ -61,8 +65,12 @@ timeout /t 5 /nobreak >nul
 REM запуск — uvicorn + браузер по умолчанию
 echo [3/3] Starting http://127.0.0.1:8000
 echo Uvicorn running on http://127.0.0.1:8000
-REM открыть браузер через 2 сек в фоне
-start "" cmd /c "timeout /t 2 /nobreak >nul & start http://127.0.0.1:8000"
+REM открыть браузер через 2 сек в фоне (если не --silent)
+if "%SILENT%"=="1" (
+  echo Silent mode -- browser not opened ^(run with --silent^)
+) else (
+  start "" cmd /c "timeout /t 2 /nobreak >nul & start http://127.0.0.1:8000"
+)
 
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 set "EC=%ERRORLEVEL%"
