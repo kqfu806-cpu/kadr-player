@@ -42,6 +42,22 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM === TASK1: автозапуск Ollama ===
+where ollama >nul 2>&1
+if errorlevel 1 (
+  echo Ollama не установлена, ИИ-функции отключены
+  goto :skip_ollama
+)
+curl -s http://127.0.0.1:11434/api/tags >nul 2>&1
+if not errorlevel 1 (
+  echo Ollama already running
+  goto :skip_ollama
+)
+echo Starting Ollama...
+start "Ollama" /min cmd /c "ollama serve"
+timeout /t 5 /nobreak >nul
+:skip_ollama
+
 REM запуск — uvicorn + браузер по умолчанию
 echo [3/3] Starting http://127.0.0.1:8000
 echo Uvicorn running on http://127.0.0.1:8000
