@@ -1944,16 +1944,19 @@ html[data-theme="anime"] .similar-avatar-img {
 .profile-warning { color: var(--muted); font-size: 0.8rem; }
 /* ЗАДАЧА6: статистика на всю ширину — убрать узкую колонку 1/3, карточки 4 в ряд, график слева топы справа, жанры снизу, 2560×1440 без скролла */
 .listening-stats {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  overflow: hidden;
+  display: none;
+  overflow: auto;
   padding: clamp(1rem, 1.8vw, 1.6rem);
-  background: var(--bg-opacity);
-  backdrop-filter: blur(24px);
+}
+.listening-stats:not(.hidden) {
   display: flex;
   flex-direction: column;
+  gap: 0.9rem;
 }
+.listening-stats.hidden { display: none !important; }
+/* БАГ2: статистика — обычная вкладка, кнопка ← К плееру больше не нужна */
+#statsBack { display: none !important; }
+
 .listening-stats .profile-toolbar { flex-wrap: wrap; }
 .stats-period-label { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
 .stats-period {
@@ -2852,3 +2855,5 @@ html[data-theme="anime"] body, html[data-theme="anime"] { font-family: 'Inter', 
 }
 
 .listening-stats.hidden { display: none !important; }
+/* БАГ2: статистика — обычная вкладка, кнопка ← К плееру больше не нужна */
+#statsBack { display: none !important; }
