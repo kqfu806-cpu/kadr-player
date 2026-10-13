@@ -5,28 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0a0a0c" />
   <script>
-    // CSP: no eval — anime theme
-    (function () {
-      try {
-        var stored = localStorage.getItem("kadr-theme-preset") || localStorage.getItem("kadr-theme-mode") || localStorage.getItem("kadr-theme");
-        if (!stored) {
-          try { localStorage.setItem("kadr-theme-preset", "anime"); } catch(e){}
-          stored = "anime";
-        }
-        var preset = stored || "anime";
-        var hour = new Date().getHours();
-        var theme = preset === "auto" ? (hour >= 7 && hour < 19 ? "light" : "dark") : preset;
-        // keep original preset values: cyberpunk #0a0e27, samurai #1a1410, dragon #1a0f0f, anime #0f0a1a etc
-        if (["dark","light","cyberpunk","samurai","dragon","anime"].indexOf(theme) === -1) theme = "anime";
-        document.documentElement.setAttribute("data-theme", theme);
-        // also apply to body when available
-        if (document.body) document.body.setAttribute("data-theme", theme);
-        else document.addEventListener("DOMContentLoaded", function(){ try{document.body.setAttribute("data-theme", theme);}catch(e){} });
-      } catch (e) {
-        document.documentElement.setAttribute("data-theme", "anime");
-      }
-    })();
-  </script>
+(function() {
+  try {
+    var stored = localStorage.getItem("kadr-theme-preset");
+    if (!stored) { localStorage.setItem("kadr-theme-preset", "anime"); stored = "anime"; }
+    var theme = stored === "auto" ? (new Date().getHours() >= 7 && new Date().getHours() < 19 ? "light" : "dark") : stored;
+    if (["dark","light","cyberpunk","samurai","dragon","anime"].indexOf(theme) === -1) theme = "anime";
+    document.documentElement.setAttribute("data-theme", theme);
+  } catch(e) { document.documentElement.setAttribute("data-theme", "anime"); }
+})();
+</script>
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Курымдык" />
