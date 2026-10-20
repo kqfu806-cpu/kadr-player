@@ -17,7 +17,14 @@ import httpx
 from .config import ROOT
 from .lastfm_client import LastFmClient, LastFmError
 from .ollama_ai import OllamaClient
-from .releases import fetch_weekly_releases
+from .releases import (
+    _RateLimiter,
+    _cache_get,
+    _cache_set,
+    _itunes_limiter,
+    _throttled_get,
+    fetch_weekly_releases,
+)
 from .scanner import Track
 from .wave import _listening_data, cosine_similarity, load_embeddings
 
@@ -27,6 +34,9 @@ CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_SEED_ARTISTS = 6
 MAX_SIMILAR_ARTISTS = 8
 MAX_EMBEDDING_CANDIDATES = 40
+MAX_COVER_ITEMS = 50  # обогащаем обложками не больше 50 позиций за раз
+
+_musicbrainz_limiter = _RateLimiter()  # у MusicBrainz жёсткий лимит ~1 req/s
 _cache_lock = asyncio.Lock()
 log = logging.getLogger("kadr.weekly")
 try:
@@ -55,8 +65,19 @@ def _svg_placeholder(artist: str) -> str:
     return "data:image/svg+xml," + urllib.parse.quote(svg)
 
 async def _cover_via_itunes(client: httpx.AsyncClient, artist: str, title: str) -> str:
+    """Обложка из iTunes: кэш на 1 час + троттлинг + 429 backoff."""
+    cache_key = f"itunes:cover:{artist.casefold()}|{title.casefold()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return str(cached or "")
     try:
-        resp = await client.get("https://itunes.apple.com/search", params={"term": f"{artist} {title}", "entity": "song", "limit": 1}, timeout=6.0)
+        resp = await _throttled_get(
+            client,
+            "https://itunes.apple.com/search",
+            params={"term": f"{artist} {title}", "entity": "song", "limit": 1},
+            timeout=6.0,
+            limiter=_itunes_limiter,
+        )
         resp.raise_for_status()
         results = resp.json().get("results") or []
         for item in results:
@@ -65,15 +86,33 @@ async def _cover_via_itunes(client: httpx.AsyncClient, artist: str, title: str) 
                 # заменить 100x100 на 600x600
                 art = art.replace("100x100bb", "600x600bb").replace("100x100", "600x600")
                 if art.startswith("https://"):
+                    _cache_set(cache_key, art)
                     return art
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger("kadr.weekly").warning(
+            "iTunes cover lookup failed for %s - %s: %s", artist, title, type(exc).__name__
+        )
+    # пустой результат тоже кэшируем, чтобы не повторять запрос каждый раз
+    _cache_set(cache_key, "")
     return ""
 
 async def _cover_via_musicbrainz(client: httpx.AsyncClient, artist: str, title: str) -> str:
+    """MusicBrainz требует ~1 запрос/с — держим паузу и кэшируем результат."""
+    cache_key = f"mb:cover:{artist.casefold()}|{title.casefold()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return str(cached or "")
+    result = ""
     try:
         # MusicBrainz search recording then cover art
-        resp = await client.get("https://musicbrainz.org/ws/2/recording/", params={"query": f'artist:"{artist}" AND recording:"{title}"', "fmt": "json", "limit": "1"}, headers={"User-Agent": "kadr-player/1.0 ( cover fallback )"}, timeout=6.0)
+        resp = await _throttled_get(
+            client,
+            "https://musicbrainz.org/ws/2/recording/",
+            params={"query": f'artist:"{artist}" AND recording:"{title}"', "fmt": "json", "limit": "1"},
+            timeout=6.0,
+            headers={"User-Agent": "kadr-player/1.0 ( cover fallback )"},
+            limiter=_musicbrainz_limiter,
+        )
         resp.raise_for_status()
         data = resp.json()
         recordings = data.get("recordings") or []
@@ -90,17 +129,28 @@ async def _cover_via_musicbrainz(client: httpx.AsyncClient, artist: str, title: 
                 try:
                     head = await client.head(url, timeout=4.0)
                     if head.status_code == 200:
-                        return url
+                        result = url
+                        break
                 except Exception:
                     # fallback to direct without check
-                    return url
-    except Exception:
-        pass
-    return ""
+                    result = url
+                    break
+            if result:
+                break
+    except Exception as exc:
+        logging.getLogger("kadr.weekly").warning(
+            "MusicBrainz cover lookup failed for %s - %s: %s", artist, title, type(exc).__name__
+        )
+    _cache_set(cache_key, result)
+    return result
 
 async def _ensure_covers(client: httpx.AsyncClient, items: list[dict[str, Any]]) -> None:
-    """Задача 4: fallback Deezer -> iTunes (600) -> MusicBrainz -> SVG placeholder."""
-    for item in items:
+    """Задача 4: fallback Deezer -> iTunes (600) -> MusicBrainz -> SVG placeholder.
+
+    Ограничиваем количество позиций (MAX_COVER_ITEMS), иначе делаем сотни
+    запросов к iTunes/MusicBrainz и получаем 403/429.
+    """
+    for item in items[:MAX_COVER_ITEMS]:
         cover = str(item.get("cover") or "").strip()
         if cover and cover.startswith("https://"):
             # уже есть Deezer, но если iTunes 100x100 -> upgrade уже выше, Deezer оставляет
