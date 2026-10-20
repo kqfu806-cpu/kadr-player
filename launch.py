@@ -290,25 +290,31 @@ def _running_in_venv() -> bool:
 
 
 class OverlayApi:
-    """JS-API оверлея: раскрытие/сворачивание меняет размер нативного окна."""
+    """JS-API оверлея: раскрытие/сворачивание меняет размер нативного окна.
+
+    ВАЖНО: все ссылки на окно храним в приватных полях (с подчёркиванием).
+    pywebview при внедрении JS-API рекурсивно обходит публичные атрибуты объекта
+    и, дойдя до .NET-объектов окна (native.AccessibilityObject...), упирается
+    в "maximum recursion depth exceeded".
+    """
 
     def __init__(self) -> None:
-        self.window = None
-        self.expanded = False
+        self._window = None
+        self._expanded = False
 
-    def bind(self, window) -> None:
-        self.window = window
+    def _bind(self, window) -> None:
+        self._window = window
 
     def set_expanded(self, expanded: bool) -> bool:
         expanded = bool(expanded)
-        if self.expanded == expanded:
-            return self.expanded
-        self.expanded = expanded
+        if self._expanded == expanded:
+            return self._expanded
+        self._expanded = expanded
         h = OVERLAY_H_EXPANDED if expanded else OVERLAY_H_COLLAPSED
         try:
-            win = self.window
+            win = self._window
             if win is None:
-                return self.expanded
+                return self._expanded
             # держим верх-центр: считаем центр до ресайза и возвращаем окно туда же
             try:
                 center_x = int(win.x) + int(win.width) // 2
@@ -322,7 +328,7 @@ class OverlayApi:
             print(f"overlay: {'expanded' if expanded else 'collapsed'} -> {OVERLAY_W}x{h}")
         except Exception as e:
             print(f"overlay resize error: {e}")
-        return self.expanded
+        return self._expanded
 
     def ping(self) -> str:
         return "pong"
@@ -374,7 +380,7 @@ def open_overlay(open_main_ui: bool = True, show_main_ui: bool = False, debug: b
         confirm_close=False,
         text_select=False,
     )
-    api.bind(window)
+    api._bind(window)
 
     def _on_loaded():
         move_to_top_center(window)
