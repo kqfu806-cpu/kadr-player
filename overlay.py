@@ -9,7 +9,9 @@ Always-on-Top, без рамки, без фокуса и без панели з�
   * GUI-поток ничего не блокирует: ни time.sleep(), ни сетевых запросов;
   * HTTP живёт в отдельном потоке PollWorker(QThread), GUI только слушает
     сигналы state_updated / cover_updated / poll_failed;
-  * частота опроса фиксирована QTimer'ом в 500 мс (не чаще 2 запросов/с);
+  * частота опроса фиксирована QTimer'ом (по умолчанию 1000 мс — 1 запрос/с,
+    диапазон 500..1000 мс через KADR_OVERLAY_POLL_MS); в потоке стоит жёсткий
+    пол 2 запроса/с, после клика по кнопке — один ускоренный опрос;
   * защита от двойного запуска — файловая блокировка cache/overlay.lock.
 
 Данные: GET  http://127.0.0.1:8000/api/now-playing
@@ -87,11 +89,23 @@ BASE = f"http://{HOST}:{PORT}"
 API_STATE = f"{BASE}/api/now-playing"
 API_CMD = f"{BASE}/api/player"
 
-COLLAPSED_W, COLLAPSED_H = 320, 80
-EXPANDED_W, EXPANDED_H = 320, 400
+def _env_int(name: str, default: int, low: int, high: int) -> int:
+    """Число из переменной окружения с жёсткими границами (неверное значение → default)."""
+    try:
+        value = int(str(os.environ.get(name, "")).strip() or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(low, min(high, value))
+
+
+COLLAPSED_W, COLLAPSED_H = 400, 84
+EXPANDED_W, EXPANDED_H = 400, 400
 BOTTOM_MARGIN = 40          # отступ от нижнего края экрана, px
-POLL_MS = 500               # период опроса состояния плеера (2 запроса/с максимум)
-MAX_POLL_FAILURES = 5       # 5 неудачных опросов подряд (2.5 c) — закрываем оверлей
+# опрос состояния: 1 GET /api/now-playing в секунду (можно переопределить: 500..1000 мс)
+POLL_MS = _env_int("KADR_OVERLAY_POLL_MS", 1000, 500, 1000)
+FAST_POLL_MS = 250          # один ускоренный опрос сразу после команды пользователя
+POLL_MIN_INTERVAL = 0.5     # жёсткий пол между запросами (2 запроса/с максимум)
+MAX_POLL_FAILURES = 5       # 5 неудачных опросов подряд (5 c) — закрываем оверлей
 HTTP_TIMEOUT = 2.0
 
 ACCENT = "#ff6b9d"
@@ -210,6 +224,7 @@ class PollWorker(QThread):
         self._poll_event = threading.Event()
         self._commands: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self._last_cover = ""
+        self._last_poll = 0.0
 
     # --- вызовы из GUI-потока (потокобезопасные) ---
     def request_poll(self) -> None:
@@ -247,6 +262,13 @@ class PollWorker(QThread):
             self._send_command(command, value)
 
     def _do_poll(self) -> None:
+        # Жёсткий пол между запросами: даже если кто-то дёрнет request_poll() чаще,
+        # сервер получит не больше 2 GET /api/now-playing в секунду.
+        now = time.monotonic()
+        wait = POLL_MIN_INTERVAL - (now - self._last_poll)
+        if wait > 0:
+            time.sleep(wait)
+        self._last_poll = time.monotonic()
         try:
             with OPENER.open(API_STATE, timeout=HTTP_TIMEOUT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -312,7 +334,7 @@ class ElidedLabel(QLabel):
 
 
 class PlayerOverlay(_KitOverlay):
-    """Островок: свёрнут 320x80, по клику разворачивается до 320x400."""
+    """Островок: свёрнут 400x84, по клику разворачивается до 400x400."""
 
     def __init__(self):
         super().__init__()
@@ -363,6 +385,11 @@ class PlayerOverlay(_KitOverlay):
         self.timer.timeout.connect(self._tick)
         self.timer.start(POLL_MS)
 
+        # одиночный ускоренный опрос после команды пользователя (частоту не меняет)
+        self._fast_poll_timer = QTimer(self)
+        self._fast_poll_timer.setSingleShot(True)
+        self._fast_poll_timer.timeout.connect(self._tick)
+
         self._place()
         self._make_topmost()
 
@@ -379,6 +406,8 @@ class PlayerOverlay(_KitOverlay):
         self.cover = QLabel(self)
         self.cover.setFixedSize(60, 60)
         self.cover.setStyleSheet(f"background: transparent; border-radius: {COVER_RADIUS}px;")
+        # обложка не должна перехватывать клики (иначе не работает перетаскивание/сворачивание)
+        self.cover.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         row.addWidget(self.cover, 0, Qt.AlignmentFlag.AlignVCenter)
 
         text_col = QVBoxLayout()
@@ -392,6 +421,8 @@ class PlayerOverlay(_KitOverlay):
             shadow.setOffset(0, 1)
             shadow.setColor(QColor(0, 0, 0, 170))
             label.setGraphicsEffect(shadow)
+            # текст не перехватывает мышь — клик по островку сворачивает/разворачивает его
+            label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         text_col.addWidget(self.title)
         text_col.addWidget(self.artist)
 
@@ -408,18 +439,29 @@ class PlayerOverlay(_KitOverlay):
         text_col.addWidget(self.progress)
         row.addLayout(text_col, 1)
 
+        # --- транспорт: отдельный горизонтальный ряд [⏮][▶][⏭] справа от текста ---
+        # Раньше кнопки создавались, но не добавлялись ни в одну раскладку —
+        # они лежали друг на друге в левом верхнем углу поверх обложки.
+        transport = QHBoxLayout()
+        transport.setSpacing(10)
+        transport.setContentsMargins(0, 0, 0, 0)
+
         self.btn_prev = self._button("⏮", "Предыдущий", self, glyph=True)
         self.btn_play = self._button("▶", "Играть / пауза", self, glyph=True)
         self.btn_next = self._button("⏭", "Следующий", self, glyph=True)
-        self.btn_play.setFixedSize(34, 34)
-        self.btn_prev.setFixedSize(30, 30)
-        self.btn_next.setFixedSize(30, 30)
         for button in (self.btn_prev, self.btn_play, self.btn_next):
+            button.setFixedSize(32, 32)
+            # кнопка обязана получать мышь и клавиатуру
+            button.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+            button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             self._round_button(button)
+            transport.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_prev.clicked.connect(lambda: self._command("prev"))
         self.btn_play.clicked.connect(self._toggle_play)
         self.btn_next.clicked.connect(lambda: self._command("next"))
+
+        row.addLayout(transport, 0)
 
         outer.addLayout(row)
 
@@ -623,15 +665,26 @@ class PlayerOverlay(_KitOverlay):
     def _quit(self) -> None:
         """Кнопка ✕: полностью закрываем приложение."""
         _log("[overlay] закрыт кнопкой")
-        self.timer.stop()
+        self._stop_timers()
         self.close()
         app = QApplication.instance()
         if app is not None:
             app.quit()
 
+    def _stop_timers(self) -> None:
+        """Гасим все таймеры окна (основной + ускоренный опрос)."""
+        for name in ("timer", "_fast_poll_timer"):
+            timer = getattr(self, name, None)
+            if timer is None:
+                continue
+            try:
+                timer.stop()
+            except Exception:
+                pass
+
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         # гасим таймер и фоновый поток — иначе процесс не завершится
-        self.timer.stop()
+        self._stop_timers()
         try:
             self.worker.stop()
             self.worker.wait(2000)
@@ -760,6 +813,18 @@ class PlayerOverlay(_KitOverlay):
             self.worker.send_command(command, value)
         except Exception as exc:
             _log(f"[overlay] команда {command} не отправлена: {exc}")
+        # после команды сразу обновляем карточку — один дополнительный запрос
+        self._schedule_fast_poll()
+
+    def _schedule_fast_poll(self) -> None:
+        """Один ускоренный опрос состояния (после клика по кнопке)."""
+        timer = getattr(self, "_fast_poll_timer", None)
+        if timer is None:
+            return
+        try:
+            timer.start(FAST_POLL_MS)
+        except Exception:
+            pass
 
     def _toggle_play(self) -> None:
         self._command("play" if not self._last_state.get("playing") else "pause")

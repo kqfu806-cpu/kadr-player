@@ -1,6 +1,6 @@
 /* CSP: no eval */
 /* Оболочка офлайн. Аудио/API не кэшируем. */
-const CACHE = "kadr-shell-v17";
+const CACHE = "kadr-shell-v18";
 const SHELL = [
   "/",
   "/static/styles.css",

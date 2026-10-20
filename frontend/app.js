@@ -1809,7 +1809,17 @@ const clipCache = new Map();
   }
 
   let playerStateTimer = null;
-  function publishPlayerState() {
+  // --- троттлинг публикации состояния (см. tools/overlay_checks/check_frontend_throttle.js) ---
+  // Раньше состояние могло уходить на сервер десятки раз в секунду (POST /api/player/state).
+  // Теперь — не чаще 1 запроса в секунду: первый уходит сразу, следующие ждут конца окна.
+  var statePublishIntervalMs = 1000;
+  var statePublishLast = 0;
+  var statePublishTimer = null;
+  var statePublishPending = false;
+  window.__kadrStatePosts = 0;
+  window.__kadrStatePostSkipped = 0;
+
+  function publishPlayerStateNow() {
     try {
       const t = currentTrack();
       let position = 0;
@@ -1818,6 +1828,7 @@ const clipCache = new Map();
       try { duration = getDuration() || 0; } catch (_) {}
       const coverEl = $("playerCover");
       const cover = coverEl ? String(coverEl.src || "") : "";
+      window.__kadrStatePosts = (window.__kadrStatePosts || 0) + 1;
       api("/api/player/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1834,6 +1845,30 @@ const clipCache = new Map();
       }).catch(() => {});
     } catch (_) {}
   }
+
+  function publishPlayerState() {
+    // ограничиваем поток: максимум один POST /api/player/state в секунду
+    const now = Date.now();
+    if (!statePublishLast || now - statePublishLast >= statePublishIntervalMs) {
+      statePublishLast = now;
+      statePublishPending = false;
+      publishPlayerStateNow();
+      return;
+    }
+    statePublishPending = true;
+    window.__kadrStatePostSkipped = (window.__kadrStatePostSkipped || 0) + 1;
+    if (!statePublishTimer) {
+      statePublishTimer = setTimeout(function () {
+        statePublishTimer = null;
+        if (!statePublishPending) return;
+        statePublishPending = false;
+        statePublishLast = Date.now();
+        publishPlayerStateNow();
+      }, statePublishIntervalMs - (now - statePublishLast));
+    }
+  }
+  // --- конец блока троттлинга ---
+
   // один таймер на всё приложение: позиция обновляется раз в секунду
   if (!playerStateTimer) {
     playerStateTimer = setInterval(() => {
@@ -1909,7 +1944,12 @@ const clipCache = new Map();
   function tick() {
     const d = getDuration();
     const p = getPosition();
-    samplePlaySession();
+    // статистика прослушивания — не чаще раза в секунду (tick идёт ~60 раз/с)
+    const nowMs = performance.now();
+    if (nowMs - (state.lastSessionSample || 0) >= 1000) {
+      state.lastSessionSample = nowMs;
+      samplePlaySession();
+    }
     if (!state.seeking && d) {
       const v = String(Math.round((p / d) * 1000));
       seek.value = v;
