@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -256,16 +257,36 @@ def cleanup_old_files() -> None:
 # ---------- прозрачное окно-оверлей ----------
 
 def wait_for_server(url: str, timeout: float = 40.0) -> bool:
-    """Ждём, пока uvicorn поднимет /api/health."""
+    """Ждём, пока uvicorn поднимет /api/health.
+
+    Прокси системно НЕ используем (иначе VPN/прокси перехватывает запрос к
+    127.0.0.1 и health-check ложно падает), плюс запасной вариант — по TCP.
+    """
     deadline = time.time() + timeout
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as r:
+            with opener.open(url, timeout=3) as r:
                 if r.status == 200:
                     return True
         except Exception:
-            time.sleep(0.4)
+            pass
+        try:
+            host, port = url.split("//", 1)[1].split("/", 1)[0].split(":")
+            with socket.create_connection((host, int(port)), timeout=2):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.4)
     return False
+
+
+def _running_in_venv() -> bool:
+    """Мы внутри venv проекта? Нужно, чтобы был доступен импорт pywebview."""
+    try:
+        return Path(sys.executable).resolve() == VENV_PY.resolve()
+    except Exception:
+        return False
 
 
 class OverlayApi:
@@ -345,7 +366,9 @@ def open_overlay(open_main_ui: bool = True, show_main_ui: bool = False, debug: b
         frameless=True,          # без рамки
         transparent=True,        # прозрачное окно: видно игру
         on_top=True,             # = always_on_top, всегда поверх игр
-        background_color="#00000000",
+        # pywebview ждёт 6-значный hex; прозрачность на Windows ставится
+        # отдельно через transparent=True (DefaultBackgroundColor = Transparent)
+        background_color="#000000",
         easy_drag=False,
         resizable=False,
         confirm_close=False,
@@ -408,7 +431,7 @@ def main() -> None:
     print(f"Selected  : Python {best_ver[0]}.{best_ver[1]}  {best_exe}")
 
     same = Path(best_exe).resolve() == Path(sys.executable).resolve()
-    if not same or sys.version_info < MIN_VER:
+    if (not same or sys.version_info < MIN_VER) and not _running_in_venv():
         print(f"Re-launching with {best_exe}")
         raise SystemExit(subprocess.call([best_exe, str(Path(__file__).resolve())] + sys.argv[1:]))
 
@@ -431,10 +454,13 @@ def main() -> None:
         print(f"\n[1/3] venv OK  ({VENV_PY})")
 
     py = str(VENV_PY)
-    print("\n[2/3] Installing dependencies ...")
-    run([py, "-m", "ensurepip", "--upgrade"], check=False)
-    run([py, "-m", "pip", "install", "--upgrade", "pip"])
-    run([py, "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")])
+    if os.environ.get("KADR_IN_VENV") == "1" and _running_in_venv():
+        print("\n[2/3] venv already ready (pywebview доступен) — установку пропускаем")
+    else:
+        print("\n[2/3] Installing dependencies ...")
+        run([py, "-m", "ensurepip", "--upgrade"], check=False)
+        run([py, "-m", "pip", "install", "--upgrade", "pip"])
+        run([py, "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")])
 
     probe = subprocess.run(
         [py, "-c", "import fastapi, uvicorn, mutagen, httpx, PIL, webview; print('imports-ok')"],
@@ -445,6 +471,20 @@ def main() -> None:
         print(probe.stderr)
         die("packages missing inside venv after pip install")
     print(probe.stdout.strip())
+
+    # pywebview нужен именно в процессе лаунчера (там живёт GUI-поток),
+    # поэтому перезапускаем скрипт интерпретатором venv
+    if not _running_in_venv():
+        print("Re-launching inside venv (нужен импорт pywebview) ...")
+        env = os.environ.copy()
+        env["KADR_IN_VENV"] = "1"
+        raise SystemExit(
+            subprocess.call(
+                [str(VENV_PY), str(Path(__file__).resolve())] + sys.argv[1:],
+                cwd=str(ROOT),
+                env=env,
+            )
+        )
 
     url = f"http://{HOST}:{PORT}"
     print(f"\n[3/3] Starting {url}")
