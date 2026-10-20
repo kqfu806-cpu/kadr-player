@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from .artists import build_artists
 from .artist_discography import fetch_artist_releases
 from .cache_store import CacheStore
+from .request_guard import HOT_PATHS, HotAccessLogFilter, RequestGuard
 from .config import (
     CACHE_DIR,
     COVERS_DIR,
@@ -128,7 +129,15 @@ _quiet = _QuietDisconnect()
 for _name in ("asyncio", "uvicorn", "uvicorn.error", "uvicorn.access", "starlette"):
     logging.getLogger(_name).addFilter(_quiet)
 
-app = FastAPI(title="Курымдык", version="1.0.0", docs_url="/api/docs")
+APP_VERSION = "1.0.4"
+
+# Абсолютный троттлинг горячих эндпоинтов (/api/now-playing, /api/player/state):
+# сервер не даёт одному клиенту завалить себя тысячами запросов в секунду
+# и не пишет тысячи строк access-лога — вместо них раз в 10 c идёт сводка.
+REQUEST_GUARD = RequestGuard(min_interval=1.0, window=10.0, warn_rate=3.0)
+ACCESS_FILTER = HotAccessLogFilter(REQUEST_GUARD)
+
+app = FastAPI(title="Курымдык", version=APP_VERSION, docs_url="/api/docs")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
@@ -172,6 +181,12 @@ for _lf in ["api.log", "client-errors.log", "ollama.log"]:
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start = time.time()
+    # дублирующее обновление состояния (чаще 1 раза в секунду) — дропаем,
+    # но отвечаем 200, чтобы клиент не начал повторять запросы
+    if request.method == "POST" and request.url.path in HOT_PATHS:
+        client = REQUEST_GUARD.client_key(request)
+        if not REQUEST_GUARD.check(request.url.path, client):
+            return JSONResponse({"ok": True, "throttled": True}, status_code=200)
     try:
         response = await call_next(request)
     except Exception as e:
@@ -190,6 +205,56 @@ async def log_requests(request: Request, call_next):
     except Exception:
         pass
     return response
+
+@app.get("/api/diagnostics/requests")
+async def diagnostics_requests() -> dict[str, Any]:
+    """Кто и как часто дёргает горячие эндпоинты (диагностика спама)."""
+    stats = REQUEST_GUARD.stats()
+    stats["suppressed_log_lines"] = ACCESS_FILTER.suppressed
+    stats["version"] = APP_VERSION
+    return stats
+
+
+def _attach_access_filter() -> None:
+    """Вешаем фильтр access-лога.
+
+    uvicorn при старте прогоняет logging.config.dictConfig и обнуляет
+    filters у логгеров — поэтому фильтр можно повесить только после
+    конфигурации (в startup), иначе он молча пропадёт.
+    """
+    logger = logging.getLogger("uvicorn.access")
+    if ACCESS_FILTER not in logger.filters:
+        logger.addFilter(ACCESS_FILTER)
+
+
+@app.on_event("startup")
+async def _start_access_summary():
+    """Раз в 10 секунд — одна сводная строка вместо тысяч строк access-лога."""
+    _sl = logging.getLogger("kadr.server")
+    _attach_access_filter()
+    try:
+        asyncio.create_task(_access_summary_loop())
+    except Exception as e:  # pragma: no cover
+        _sl.warning(f"не удалось запустить сводку access-лога: {e}")
+
+
+async def _access_summary_loop() -> None:
+    _sl = logging.getLogger("kadr.server")
+    while True:
+        await asyncio.sleep(10)
+        try:
+            rows = ACCESS_FILTER.take_summary()
+        except Exception:
+            continue
+        for path, client, count in rows[:5]:
+            rate = count / 10.0
+            if rate > REQUEST_GUARD.warn_rate:
+                _sl.warning(
+                    f"СПАМ: {path} x{count} за 10 c ({rate:.1f}/с) от {client}"
+                )
+            else:
+                _sl.info(f"{path} x{count} за 10 c ({rate:.1f}/с) от {client}")
+
 
 @app.post("/api/log/client-error")
 async def log_client_error(request: Request):
@@ -736,6 +801,7 @@ async def health() -> dict[str, Any]:
     await ollama.refresh_status(_client())
     return {
         "ok": True,
+        "version": APP_VERSION,
         "folder": current_folder or _saved_library_folder() or (
             str(DEFAULT_MUSIC_FOLDER) if DEFAULT_MUSIC_FOLDER.is_dir() else None
         ),

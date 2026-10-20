@@ -1,6 +1,6 @@
 /* CSP: no eval */
 /* Оболочка офлайн. Аудио/API не кэшируем. */
-const CACHE = "kadr-shell-v18";
+const CACHE = "kadr-shell-v19";
 const SHELL = [
   "/",
   "/static/styles.css",
@@ -29,6 +29,12 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/ws")) return;
   if (event.request.method !== "GET") return;
+  // Код приложения всегда берём из сети: старый app.js в кэше — это старый
+  // троттлинг и тысячи запросов /api/player/state в секунду.
+  if (url.pathname === "/static/app.js" || url.pathname === "/static/i18n.js") {
+    event.respondWith(fetch(event.request, { cache: "no-store" }));
+    return;
+  }
   event.respondWith(
     fetch(event.request)
       .then((res) => {

@@ -17,7 +17,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 os.environ.setdefault("QT_QPA_PLATFORM", "vnc")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QHBoxLayout
 
@@ -193,6 +194,32 @@ check("клик мышью по кнопке «следующий» дошёл �
 check("сервер получил команду через HTTP",
       "/api/player/next" in POSTS, POSTS)
 
+print("=== 2c. клик по кнопке, когда её событие перехвачено (свой hit-test) ===")
+sent.clear()
+# имитируем «прозрачный виджет поверх кнопки»: Qt отдаст клик окну, а не кнопке
+w.btn_next.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+center = w.btn_next.mapToGlobal(QPoint(w.btn_next.width() // 2, w.btn_next.height() // 2))
+origin = w.mapToGlobal(QPoint(0, 0))
+local = QPointF(center.x() - origin.x(), center.y() - origin.y())
+press = QMouseEvent(QEvent.Type.MouseButtonPress, local, QPointF(center),
+                    Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier)
+release = QMouseEvent(QEvent.Type.MouseButtonRelease, local, QPointF(center),
+                      Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
+                      Qt.KeyboardModifier.NoModifier)
+was_expanded = w._expanded
+QApplication.sendEvent(w, press)
+QApplication.sendEvent(w, release)
+deadline = time.time() + 3
+while time.time() < deadline and not sent:
+    app.processEvents()
+    time.sleep(0.05)
+check("свой hit-test всё равно отправил команду «следующий»",
+      any(u.endswith("/next") for u in [s[0] for s in sent]),
+      [s[0] for s in sent])
+check("оверлей не развернулся при клике по кнопке", w._expanded == was_expanded)
+w.btn_next.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+
 print("=== 3. частота опроса: не больше 1 GET /api/now-playing в секунду ===")
 counter = {"n": 0}
 
@@ -215,6 +242,8 @@ print(f"  запросов: {counter['n']} за {elapsed:.2f} c = {rate:.2f}/с"
 check("частота <= 1.5 запроса/с", rate <= 1.5, f"({rate:.2f}/с)")
 check("таймер опроса в диапазоне 500..1000 мс",
       500 <= ov.POLL_MS <= 1000, f"({ov.POLL_MS} мс)")
+check("абсолютный пол между запросами = 1 c", ov.POLL_MIN_INTERVAL >= 1.0,
+      f"({ov.POLL_MIN_INTERVAL} c)")
 ov.OPENER.open = spy_open
 
 print("=== 4. кнопка ✕ закрывает окно и останавливает поток ===")

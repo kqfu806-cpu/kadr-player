@@ -1,12 +1,13 @@
-/* Проверка троттлинга публикации состояния во фронтенде.
+/* Проверка жёсткого кулдауна публикации состояния во фронтенде.
  *
  * Запуск:  node tools/overlay_checks/check_frontend_throttle.js
  *
  * Что проверяем:
- *   1) блок троттлинга вообще есть в frontend/app.js;
+ *   1) блок троттлинга есть в frontend/app.js;
  *   2) 500 вызовов publishPlayerState() подряд дают ровно 1 POST /api/player/state;
- *   3) за 5 секунд непрерывных вызовов — не больше 6 POST (троттлинг 1/с);
- *   4) отложенный (trailing) POST не теряется — последнее состояние всё-таки уходит.
+ *   3) за 5 секунд непрерывных вызовов — не больше 6 POST (кулдаун 1/с);
+ *   4) после секунды тишины состояние уходит снова (обновление не теряется);
+ *   5) перемотка (события слайдера) не даёт больше одного POST в секунду.
  */
 const fs = require("fs");
 const path = require("path");
@@ -82,8 +83,6 @@ console.log("=== 1. 500 вызовов подряд (одна «секунда»
 posts = 0;
 for (let i = 0; i < 500; i++) api.publishPlayerState();
 check("ровно 1 POST на 500 вызовов", posts === 1, `(получено ${posts})`);
-advance(1000);
-check("отложенный POST тоже ушёл (итого 2)", posts === 2, `(получено ${posts})`);
 
 console.log("=== 2. непрерывные вызовы 5 секунд ===");
 posts = 0;
@@ -92,9 +91,8 @@ for (let t = 0; t < 5000; t += 10) {
   api.publishPlayerState();
   advance(10);
 }
-advance(1000);
 console.log(`  POST за 5 c: ${posts}`);
-check("не больше 6 POST за 5 c (троттлинг 1/с)", posts <= 6, `(получено ${posts})`);
+check("не больше 6 POST за 5 c (кулдаун 1/с)", posts <= 6, `(получено ${posts})`);
 check("не меньше 4 POST за 5 c (состояние не теряется)", posts >= 4, `(получено ${posts})`);
 
 console.log("=== 3. одиночный вызов после простоя ===");
@@ -102,6 +100,17 @@ posts = 0;
 advance(2000);
 api.publishPlayerState();
 check("после простоя запрос уходит сразу", posts === 1, `(получено ${posts})`);
+
+console.log("=== 4. имитация перемотки (60 событий ползунка за секунду) ===");
+posts = 0;
+advance(2000);
+for (let i = 0; i < 60; i++) {
+  api.publishPlayerState();
+  advance(16);
+}
+advance(1000);
+console.log(`  POST при перемотке: ${posts}`);
+check("перемотка даёт не больше 2 POST/с", posts <= 2, `(получено ${posts})`);
 
 console.log("\nИТОГ:", ok ? "ВСЁ ОК" : "ЕСТЬ ОШИБКИ");
 process.exit(ok ? 0 : 1);
