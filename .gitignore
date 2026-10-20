@@ -9,6 +9,7 @@ log*.txt
 archive/
 .venv/
 cache/*.log
+cache/overlay.lock
 !cache/*.sqlite3
 !cache/*.sqlite
 !cache/*.db

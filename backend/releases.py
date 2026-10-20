@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import time
 import unicodedata
 from datetime import date, timedelta
 from typing import Any
@@ -16,7 +18,87 @@ API = "https://api.deezer.com"
 ITUNES_API = "https://itunes.apple.com/search"
 MAX_RELEASES_PER_ARTIST = 50
 MAX_LASTFM_FALLBACK_ARTISTS = 6
+# --- троттлинг внешних API (Deezer/iTunes отвечают 403/429 при частых запросах) ---
+MAX_ARTISTS_PER_RUN = 50          # за раз проверяем только 50 самых популярных артистов
+REQUEST_DELAY = float(os.environ.get("KADR_RELEASE_DELAY", "1.0"))   # пауза между запросами, c
+CACHE_TTL = float(os.environ.get("KADR_RELEASE_CACHE_TTL", "3600"))  # кэш ответов, c (1 час)
+RATE_LIMIT_BACKOFF = float(os.environ.get("KADR_RELEASE_BACKOFF", "30"))  # пауза при 429, c
 log = logging.getLogger("kadr.weekly")
+
+# кэш ответов Deezer/iTunes: ключ -> (время, данные)
+_response_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _cache_get(key: str) -> Any | None:
+    """Вернуть значение из кэша, если оно не протухло (CACHE_TTL)."""
+    item = _response_cache.get(key)
+    if item is None:
+        return None
+    stamp, value = item
+    if time.monotonic() - stamp > CACHE_TTL:
+        _response_cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key: str, value: Any) -> None:
+    _response_cache[key] = (time.monotonic(), value)
+    if len(_response_cache) > 2000:  # предохранитель от роста памяти
+        oldest = sorted(_response_cache.items(), key=lambda item: item[1][0])[:500]
+        for stale_key, _ in oldest:
+            _response_cache.pop(stale_key, None)
+
+
+class _RateLimiter:
+    """Глобальный троттлинг: не чаще одного запроса в REQUEST_DELAY секунд.
+
+    Артисты проверяются параллельно, поэтому пауза «после каждого артиста»
+    сама по себе не ограничивает скорость — нужен общий регулятор.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._next_at = 0.0
+
+    async def wait(self) -> None:
+        delay = REQUEST_DELAY
+        if delay <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            if now < self._next_at:
+                await asyncio.sleep(self._next_at - now)
+            self._next_at = time.monotonic() + delay
+
+
+_deezer_limiter = _RateLimiter()
+_itunes_limiter = _RateLimiter()
+
+
+async def _throttled_get(
+    client: httpx.AsyncClient,
+    url: str,
+    params: dict[str, Any] | None = None,
+    timeout: float = 7.0,
+    limiter: _RateLimiter | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    """GET с троттлингом и одной повторной попыткой: при 429 ждём 30 c и пробуем ещё раз."""
+    if limiter is not None:
+        await limiter.wait()
+    response = await client.get(url, params=params, timeout=timeout, headers=headers)
+    if response.status_code == 429:
+        log.warning("Rate limited (429) by %s — пауза %s c и одна повторная попытка", url, RATE_LIMIT_BACKOFF)
+        await asyncio.sleep(RATE_LIMIT_BACKOFF)
+        if limiter is not None:
+            await limiter.wait()
+        response = await client.get(url, params=params, timeout=timeout, headers=headers)
+        if response.status_code == 429:
+            log.warning("Rate limited (429) again by %s — пропускаем", url)
+            raise httpx.HTTPStatusError(
+                "429 Too Many Requests", request=response.request, response=response
+            )
+    return response
 
 
 def _normalize(value: str) -> str:
@@ -39,30 +121,39 @@ async def _artist_releases(
     today: date,
     semaphore: asyncio.Semaphore,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    async with semaphore:
-        try:
-            search = await client.get(
-                f"{API}/search/artist",
-                params={"q": name},
-                timeout=7.0,
-            )
-            log.info("Weekly request: provider=Deezer endpoint=search/artist artist=%s status=%d", name, search.status_code)
-            search.raise_for_status()
-            artist = _exact_artist(search.json().get("data") or [], name)
-            if not artist:
-                return [], None
+    cache_key = f"deezer:artist:{name.casefold()}"
+    payload = _cache_get(cache_key)
+    if payload is None:
+        async with semaphore:
+            try:
+                search = await _throttled_get(
+                    client,
+                    f"{API}/search/artist",
+                    params={"q": name},
+                    limiter=_deezer_limiter,
+                )
+                log.info("Weekly request: provider=Deezer endpoint=search/artist artist=%s status=%d", name, search.status_code)
+                search.raise_for_status()
+                artist = _exact_artist(search.json().get("data") or [], name)
+                if not artist:
+                    return [], None
 
-            albums_response = await client.get(
-                f"{API}/artist/{artist['id']}/albums",
-                params={"limit": MAX_RELEASES_PER_ARTIST},
-                timeout=7.0,
-            )
-            log.info("Weekly request: provider=Deezer endpoint=artist/albums artist=%s status=%d", name, albums_response.status_code)
-            albums_response.raise_for_status()
-            albums = albums_response.json().get("data") or []
-        except Exception as exc:
-            log.warning("Deezer release lookup failed for %s: %s", name, type(exc).__name__)
-            return [], f"Не удалось проверить релизы: {name}"
+                albums_response = await _throttled_get(
+                    client,
+                    f"{API}/artist/{artist['id']}/albums",
+                    params={"limit": MAX_RELEASES_PER_ARTIST},
+                    limiter=_deezer_limiter,
+                )
+                log.info("Weekly request: provider=Deezer endpoint=artist/albums artist=%s status=%d", name, albums_response.status_code)
+                albums_response.raise_for_status()
+                albums = albums_response.json().get("data") or []
+            except Exception as exc:
+                log.warning("Deezer release lookup failed for %s: %s", name, type(exc).__name__)
+                return [], f"Не удалось проверить релизы: {name}"
+        _cache_set(cache_key, (artist, albums))
+    else:
+        artist, albums = payload
+        log.info("Weekly request: provider=Deezer endpoint=artist/albums artist=%s status=cache", name)
 
     releases: list[dict[str, Any]] = []
     for album in albums:
@@ -99,19 +190,26 @@ async def _itunes_artist_tracks(
     today: date,
     semaphore: asyncio.Semaphore,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    async with semaphore:
-        try:
-            response = await client.get(
-                ITUNES_API,
-                params={"term": name, "entity": "musicTrack", "limit": 10},
-                timeout=7.0,
-            )
-            log.info("Weekly request: provider=iTunes endpoint=search artist=%s status=%d", name, response.status_code)
-            response.raise_for_status()
-            results = response.json().get("results") or []
-        except Exception as exc:
-            log.warning("iTunes release lookup failed for %s: %s", name, type(exc).__name__)
-            return [], f"Не удалось проверить iTunes: {name}"
+    cache_key = f"itunes:search:{name.casefold()}"
+    results = _cache_get(cache_key)
+    if results is None:
+        async with semaphore:
+            try:
+                response = await _throttled_get(
+                    client,
+                    ITUNES_API,
+                    params={"term": name, "entity": "musicTrack", "limit": 10},
+                    limiter=_itunes_limiter,
+                )
+                log.info("Weekly request: provider=iTunes endpoint=search artist=%s status=%d", name, response.status_code)
+                response.raise_for_status()
+                results = response.json().get("results") or []
+            except Exception as exc:
+                log.warning("iTunes release lookup failed for %s: %s", name, type(exc).__name__)
+                return [], f"Не удалось проверить iTunes: {name}"
+        _cache_set(cache_key, results)
+    else:
+        log.info("Weekly request: provider=iTunes endpoint=search artist=%s status=cache", name)
 
     wanted = _normalize(name)
     tracks: list[dict[str, Any]] = []
@@ -205,10 +303,11 @@ async def _single_tracks(
         return []
     async with semaphore:
         try:
-            response = await client.get(
+            response = await _throttled_get(
+                client,
                 f"{API}/album/{release['id']}/tracks",
                 params={"limit": 100},
-                timeout=7.0,
+                limiter=_deezer_limiter,
             )
             log.info("Weekly request: provider=Deezer endpoint=album/tracks artist=%s status=%d", release.get("artist", ""), response.status_code)
             response.raise_for_status()
@@ -253,6 +352,13 @@ async def fetch_weekly_releases(
 ) -> dict[str, Any]:
     """Return new Deezer singles/tracks and albums, excluding local recordings."""
     names = list(dict.fromkeys(name.strip() for name in artist_names if isinstance(name, str) and name.strip()))
+    if len(names) > MAX_ARTISTS_PER_RUN:
+        log.info(
+            "Weekly: limiting artists to %d of %d (top by play count) — avoids Deezer/iTunes 403/429",
+            MAX_ARTISTS_PER_RUN,
+            len(names),
+        )
+        names = names[:MAX_ARTISTS_PER_RUN]
     today = date.today()
     cutoff = today - timedelta(days=max(1, min(int(days), 30)))
     semaphore = asyncio.Semaphore(8)

@@ -562,8 +562,18 @@ async def api_now_playing() -> dict[str, Any]:
     return {"ok": True, **PLAYER_STATE}
 
 
+@app.post("/api/now-playing")
+async def api_now_playing_post(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Совместимость: клиент публикует состояние прямо на /api/now-playing.
+
+    Раньше здесь был только GET, и POST отдавал 405 Method Not Allowed.
+    Тело необязательно — пустой POST тоже принимается.
+    """
+    return await api_player_state(body or {})
+
+
 @app.post("/api/player/state")
-async def api_player_state(body: dict[str, Any]) -> dict[str, Any]:
+async def api_player_state(body: dict[str, Any] | None = None) -> dict[str, Any]:
     """Основной интерфейс публикует состояние воспроизведения."""
     body = body or {}
     track_id = str(body.get("track_id") or "").strip()

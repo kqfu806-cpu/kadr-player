@@ -1820,6 +1820,7 @@ const clipCache = new Map();
       const cover = coverEl ? String(coverEl.src || "") : "";
       api("/api/player/state", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           track_id: t ? String(t.id || "") : "",
           title: t ? String(t.title || "") : "",
