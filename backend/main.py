@@ -543,6 +543,93 @@ class Hub:
 hub = Hub()
 
 
+# ---------- состояние плеера для внешнего оверлея (overlay.py) ----------
+# Основной интерфейс в браузере публикует, что играет сейчас, а оверлей
+# (PyQt6 + pyoverlaykit) читает это состояние и шлёт команды обратно.
+PLAYER_STATE: dict[str, Any] = {
+    "playing": False,
+    "track": None,
+    "position": 0.0,
+    "duration": 0.0,
+    "at": 0.0,
+}
+PLAYER_COMMANDS = ("play", "pause", "next", "prev", "seek")
+
+
+@app.get("/api/now-playing")
+async def api_now_playing() -> dict[str, Any]:
+    """Текущий трек. Оверлей опрашивает этот эндпоинт каждые 500 мс."""
+    return {"ok": True, **PLAYER_STATE}
+
+
+@app.post("/api/player/state")
+async def api_player_state(body: dict[str, Any]) -> dict[str, Any]:
+    """Основной интерфейс публикует состояние воспроизведения."""
+    body = body or {}
+    track_id = str(body.get("track_id") or "").strip()
+    title = str(body.get("title") or "").strip()
+    artist = str(body.get("artist") or "").strip()
+    album = str(body.get("album") or "").strip()
+    cover = str(body.get("cover") or "").strip()
+    playing = bool(body.get("playing", False))
+    try:
+        position = max(0.0, float(body.get("position") or 0.0))
+    except (TypeError, ValueError):
+        position = 0.0
+    try:
+        duration = max(0.0, float(body.get("duration") or 0.0))
+    except (TypeError, ValueError):
+        duration = 0.0
+
+    track = library.get(track_id) if track_id else None
+    if track is not None:
+        info: dict[str, Any] | None = {
+            "id": track.id,
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
+            "cover": cover,
+            "duration": duration or float(track.duration or 0.0),
+        }
+    elif title:
+        info = {
+            "id": track_id or f"ext:{title}",
+            "title": title,
+            "artist": artist,
+            "album": album,
+            "cover": cover,
+            "duration": duration,
+        }
+    else:
+        info = None
+
+    PLAYER_STATE["playing"] = bool(info) and playing
+    PLAYER_STATE["track"] = info
+    PLAYER_STATE["position"] = round(position, 2)
+    PLAYER_STATE["duration"] = round(
+        float((info or {}).get("duration") or duration or 0.0), 2
+    )
+    PLAYER_STATE["at"] = time.time()
+    return {"ok": True, **PLAYER_STATE}
+
+
+@app.post("/api/player/{command}")
+async def api_player_command(command: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Команда от оверлея: play|pause|next|prev|seek — уходит в браузер по /ws."""
+    cmd = (command or "").strip().lower()
+    if cmd not in PLAYER_COMMANDS:
+        raise HTTPException(400, f"Неизвестная команда: {command}")
+    payload: dict[str, Any] = {"type": "player_command", "command": cmd}
+    if cmd == "seek":
+        value = (body or {}).get("position", (body or {}).get("offset"))
+        try:
+            payload["value"] = float(value)
+        except (TypeError, ValueError):
+            payload["value"] = None
+    await hub.broadcast(payload)
+    return {"ok": True, "command": cmd}
+
+
 @app.exception_handler(ClientDisconnect)
 async def _client_gone(_request, _exc) -> Response:
     return Response(status_code=204)
