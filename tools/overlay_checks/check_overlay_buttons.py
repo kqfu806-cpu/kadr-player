@@ -157,68 +157,92 @@ for name in ("btn_prev", "btn_play", "btn_next", "btn_back", "btn_fwd", "close_b
           and not button.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
 
 print("=== 2. клик по Play реально шлёт POST /api/player/play ===")
-sent = []
-real_open = ov.OPENER.open
+# шпион на _send_command: проверяем, что команда уходит из обработчика кнопки
+sent_cmds = []
+real_send = w._send_command
 
 
-def spy_open(req, timeout=None):
-    url = getattr(req, "full_url", str(req))
-    if url.startswith("http://127.0.0.1:8000/api/player/"):
-        sent.append((url, getattr(req, "data", None)))
-    return real_open(req, timeout=timeout)
+def spy_send(command, value=None):
+    sent_cmds.append(command)
+    return real_send(command, value)
 
 
-ov.OPENER.open = spy_open
+w._send_command = spy_send
 w.btn_play.click()
 w.btn_next.click()
 w.btn_prev.click()
-deadline = time.time() + 3
-while time.time() < deadline and len(sent) < 3:
-    app.processEvents()
-    time.sleep(0.05)
-urls = [s[0] for s in sent]
-check("POST /api/player/play отправлен", any(u.endswith("/play") for u in urls), urls)
-check("POST /api/player/next отправлен", any(u.endswith("/next") for u in urls))
-check("POST /api/player/prev отправлен", any(u.endswith("/prev") for u in urls))
+app.processEvents()
+check("обработчик Play отправил команду", "play" in sent_cmds or "pause" in sent_cmds, sent_cmds)
+check("обработчик Next отправил команду", "next" in sent_cmds, sent_cmds)
+check("обработчик Prev отправил команду", "prev" in sent_cmds, sent_cmds)
+
+if STUB is not None:
+    deadline = time.time() + 3
+    while time.time() < deadline and len(POSTS) < 3:
+        app.processEvents()
+        time.sleep(0.05)
+    check("сервер получил POST /api/player/play", "/api/player/play" in POSTS, POSTS)
+    check("сервер получил POST /api/player/next", "/api/player/next" in POSTS, POSTS)
+    check("сервер получил POST /api/player/prev", "/api/player/prev" in POSTS, POSTS)
+else:
+    print("  [SKIP] реальный сервер на 8000 занят — проверяем только отправку команды")
 
 print("=== 2b. настоящий клик мышью по кнопке (проверка попадания) ===")
-sent.clear()
+sent_cmds.clear()
+POSTS.clear()
 QTest.mouseClick(w.btn_next, Qt.MouseButton.LeftButton)
 deadline = time.time() + 3
-while time.time() < deadline and not sent:
+while time.time() < deadline and not sent_cmds:
     app.processEvents()
     time.sleep(0.05)
-check("клик мышью по кнопке «следующий» дошёл до сервера",
-      any(u.endswith("/next") for u in [s[0] for s in sent]),
-      [s[0] for s in sent])
-check("сервер получил команду через HTTP",
-      "/api/player/next" in POSTS, POSTS)
+check("клик мышью по кнопке «следующий» дошёл до обработчика",
+      "next" in sent_cmds, sent_cmds)
+was_expanded = w._expanded
+QTest.mouseClick(w.btn_prev, Qt.MouseButton.LeftButton)
+app.processEvents()
+check("клик по кнопке НЕ разворачивает оверлей (стандартный Qt)",
+      w._expanded == was_expanded)
+check("обработчик Prev сработал по клику мышью", "prev" in sent_cmds, sent_cmds)
+if STUB is not None:
+    deadline = time.time() + 3
+    while time.time() < deadline and not POSTS:
+        app.processEvents()
+        time.sleep(0.05)
+    check("сервер получил команду через HTTP",
+          "/api/player/next" in POSTS, POSTS)
 
-print("=== 2c. клик по кнопке, когда её событие перехвачено (свой hit-test) ===")
-sent.clear()
-# имитируем «прозрачный виджет поверх кнопки»: Qt отдаст клик окну, а не кнопке
-w.btn_next.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-center = w.btn_next.mapToGlobal(QPoint(w.btn_next.width() // 2, w.btn_next.height() // 2))
+print("=== 2c. РЕГРЕСС: окно не должно «уезжать» за курсором ===")
+# Сценарий, который ломал всё раньше: нажали на пустом месте островка,
+# отпустили над кнопкой → состояние перетаскивания не сбрасывалось →
+# ЛЮБОЕ движение мыши над окном уводило его за курсором (GUI зависал).
 origin = w.mapToGlobal(QPoint(0, 0))
-local = QPointF(center.x() - origin.x(), center.y() - origin.y())
-press = QMouseEvent(QEvent.Type.MouseButtonPress, local, QPointF(center),
+background = QPointF(20, 20)          # пустое место островка
+button_center = w.btn_next.mapToGlobal(
+    QPoint(w.btn_next.width() // 2, w.btn_next.height() // 2))
+btn_local = QPointF(button_center.x() - origin.x(), button_center.y() - origin.y())
+press = QMouseEvent(QEvent.Type.MouseButtonPress, background, QPointF(background),
                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
                     Qt.KeyboardModifier.NoModifier)
-release = QMouseEvent(QEvent.Type.MouseButtonRelease, local, QPointF(center),
+release = QMouseEvent(QEvent.Type.MouseButtonRelease, btn_local, QPointF(button_center),
                       Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
                       Qt.KeyboardModifier.NoModifier)
-was_expanded = w._expanded
 QApplication.sendEvent(w, press)
 QApplication.sendEvent(w, release)
-deadline = time.time() + 3
-while time.time() < deadline and not sent:
+app.processEvents()
+check("после отпускания состояние перетаскивания сброшено", w._press_pos is None)
+# клик по пустому месту штатно переключает раскладку (высота 84 -> 400),
+# поэтому позицию считаем ПОСЛЕ отпускания
+pos_after_click = w.pos()
+# теперь просто навёдываем мышь (кнопка не зажата) — окно обязано остаться на месте
+for step in range(1, 11):
+    move = QMouseEvent(QEvent.Type.MouseMove, QPointF(20 + step * 15, 20),
+                       QPointF(20 + step * 15, 20), Qt.MouseButton.NoButton,
+                       Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(w, move)
     app.processEvents()
-    time.sleep(0.05)
-check("свой hit-test всё равно отправил команду «следующий»",
-      any(u.endswith("/next") for u in [s[0] for s in sent]),
-      [s[0] for s in sent])
-check("оверлей не развернулся при клике по кнопке", w._expanded == was_expanded)
-w.btn_next.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+check("окно не уехало за курсором при наведении", w.pos() == pos_after_click,
+      f"({pos_after_click} → {w.pos()})")
+check("перетаскивание не началось", w._dragging is False)
 
 print("=== 3. частота опроса: не больше 1 GET /api/now-playing в секунду ===")
 counter = {"n": 0}
@@ -244,10 +268,14 @@ check("таймер опроса в диапазоне 500..1000 мс",
       500 <= ov.POLL_MS <= 1000, f"({ov.POLL_MS} мс)")
 check("абсолютный пол между запросами = 1 c", ov.POLL_MIN_INTERVAL >= 1.0,
       f"({ov.POLL_MIN_INTERVAL} c)")
-ov.OPENER.open = spy_open
 
 print("=== 4. кнопка ✕ закрывает окно и останавливает поток ===")
+close_started = time.time()
 w.close_btn.click()
+app.processEvents()
+close_time = time.time() - close_started
+check("закрытие быстрое (не блокирует GUI на секунды)", close_time < 1.5,
+      f"({close_time:.2f} c)")
 app.processEvents()
 check("окно закрыто", not w.isVisible())
 check("таймер остановлен", not w.timer.isActive())
