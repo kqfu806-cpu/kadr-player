@@ -80,6 +80,10 @@ if not exist "cache\logs" mkdir cache\logs
 echo Проверка сервера (10 сек)...
 start "" cmd /c "timeout /t 10 /nobreak >nul & curl -s http://127.0.0.1:8000/api/health >nul 2>&1 || (echo. & echo Сервер не запустился, проверь cache/server.log & if exist cache\server.log type cache\server.log & pause)"
 
+REM Оверлей «Dynamic Island» (PyQt6 + pyoverlaykit) — отдельное окно поверх игр.
+REM Стартует через 12 сек, чтобы сервер успел подняться.
+start "" cmd /c call "%~dp0run_overlay.bat" 12
+
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 set "EC=%ERRORLEVEL%"
 echo.

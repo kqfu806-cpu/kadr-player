@@ -859,6 +859,7 @@ const clipCache = new Map();
     $("coverWrap").classList.toggle("is-clip", state.mode === "youtube");
     if (v && currentTrack()) buildWave(currentTrack().id);
     updateNowPlaying();
+    publishPlayerState();
   }
 
   function showWelcome(on) {
@@ -914,6 +915,7 @@ const clipCache = new Map();
     $("nowReason").textContent = "";
     document.title = `${t.artist} — ${t.title} · Курымдык`;
     updateNowPlaying();
+    publishPlayerState();
 
     $("videoWrap").classList.add("hidden");
     $("videoWrap").classList.remove("on");
@@ -1766,6 +1768,76 @@ const clipCache = new Map();
     } else {
       audio.currentTime = sec;
     }
+  }
+
+  // ---------- внешний оверлей (overlay.py): команды и публикация состояния ----------
+  function handlePlayerCommand(msg) {
+    const cmd = String((msg && msg.command) || "").toLowerCase();
+    try {
+      if (cmd === "play") {
+        if (state.mode === "youtube" && state.yt) {
+          state.yt.playVideo();
+          setPlaying(true);
+        } else {
+          const p = audio.play();
+          if (p && typeof p.then === "function") {
+            p.then(() => setPlaying(true)).catch((e) => {
+              console.warn("[overlay] play отклонён браузером:", e && e.name);
+            });
+          } else {
+            setPlaying(true);
+          }
+        }
+      } else if (cmd === "pause") {
+        if (state.mode === "youtube" && state.yt) state.yt.pauseVideo();
+        audio.pause();
+        setPlaying(false);
+      } else if (cmd === "next") {
+        next(false);
+      } else if (cmd === "prev") {
+        prev();
+      } else if (cmd === "seek") {
+        const value = Number(msg.value);
+        if (Number.isFinite(value)) {
+          const d = getDuration();
+          seekTo(d > 0 ? Math.max(0, Math.min(d, value)) : Math.max(0, value));
+        }
+      }
+    } catch (e) {
+      console.warn("[overlay] команда не выполнена:", cmd, e);
+    }
+  }
+
+  let playerStateTimer = null;
+  function publishPlayerState() {
+    try {
+      const t = currentTrack();
+      let position = 0;
+      let duration = 0;
+      try { position = getPosition() || 0; } catch (_) {}
+      try { duration = getDuration() || 0; } catch (_) {}
+      const coverEl = $("playerCover");
+      const cover = coverEl ? String(coverEl.src || "") : "";
+      api("/api/player/state", {
+        method: "POST",
+        body: JSON.stringify({
+          track_id: t ? String(t.id || "") : "",
+          title: t ? String(t.title || "") : "",
+          artist: t ? String(t.artist || "") : "",
+          album: t ? String(t.album || "") : "",
+          cover,
+          playing: !!state.playing,
+          position,
+          duration,
+        }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+  // один таймер на всё приложение: позиция обновляется раз в секунду
+  if (!playerStateTimer) {
+    playerStateTimer = setInterval(() => {
+      if (state.playing) publishPlayerState();
+    }, 1000);
   }
 
   function applyVolume() {
@@ -3836,6 +3908,7 @@ const clipCache = new Map();
         toast("Клипы и обложки обновлены");
         setTimeout(() => ($("batchProgress").textContent = ""), 2500);
       }
+      if (msg.type === "player_command") handlePlayerCommand(msg);
     };
     ws.onclose = () => setTimeout(connectWs, 2500);
     setInterval(() => {
