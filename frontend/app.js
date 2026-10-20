@@ -859,48 +859,7 @@ const clipCache = new Map();
     $("coverWrap").classList.toggle("is-clip", state.mode === "youtube");
     if (v && currentTrack()) buildWave(currentTrack().id);
     updateNowPlaying();
-    notifyNowPlaying();
   }
-
-  // ---------- оверлей: публикуем текущий трек в существующий WebSocket /ws ----------
-  let nowPlayingKey = "";
-  let nowPlayingSentAt = 0;
-  let nowPlayingSentPos = 0;
-  function notifyNowPlaying(force) {
-    try {
-      const t = currentTrack();
-      const playing = !!state.playing;
-      const id = t ? String(t.id || "") : "";
-      const title = t ? String(t.title || "") : "";
-      const artist = t ? String(t.artist || "") : "";
-      const album = t ? String(t.album || "") : "";
-      const coverEl = $("playerCover");
-      const cover = coverEl ? String(coverEl.src || "") : "";
-      let position = 0;
-      try { position = getPosition() || 0; } catch (_) {}
-      const key = [id, playing ? "1" : "0", title, artist].join("|");
-      const drift = Math.abs(position - nowPlayingSentPos);
-      const stale = playing && (Date.now() - nowPlayingSentAt > 15000) && drift > 3;
-      if (!force && key === nowPlayingKey && !stale) return;
-      nowPlayingKey = key;
-      nowPlayingSentAt = Date.now();
-      nowPlayingSentPos = position;
-      api("/api/now-playing", {
-        method: "POST",
-        body: JSON.stringify({
-          track_id: id,
-          playing,
-          title,
-          artist,
-          album,
-          cover,
-          position,
-        }),
-      }).catch(() => {});
-    } catch (_) {}
-  }
-  // один таймер на всё приложение (не плодим интервалы в обработчиках)
-  setInterval(() => notifyNowPlaying(false), 5000);
 
   function showWelcome(on) {
     $("welcome").classList.toggle("hidden", !on);
