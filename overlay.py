@@ -53,6 +53,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+BUILD = "2026-10-20-btns-throttle"
+
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "overlay.log")
 LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "overlay.lock")
 
@@ -104,7 +106,7 @@ BOTTOM_MARGIN = 40          # отступ от нижнего края экра
 # опрос состояния: 1 GET /api/now-playing в секунду (можно переопределить: 500..1000 мс)
 POLL_MS = _env_int("KADR_OVERLAY_POLL_MS", 1000, 500, 1000)
 FAST_POLL_MS = 250          # один ускоренный опрос сразу после команды пользователя
-POLL_MIN_INTERVAL = 0.5     # жёсткий пол между запросами (2 запроса/с максимум)
+POLL_MIN_INTERVAL = 1.0     # абсолютный пол: не чаще 1 GET /api/now-playing в секунду
 MAX_POLL_FAILURES = 5       # 5 неудачных опросов подряд (5 c) — закрываем оверлей
 HTTP_TIMEOUT = 2.0
 
@@ -225,10 +227,17 @@ class PollWorker(QThread):
         self._commands: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self._last_cover = ""
         self._last_poll = 0.0
+        self._force_poll = False
 
     # --- вызовы из GUI-потока (потокобезопасные) ---
-    def request_poll(self) -> None:
-        """Просит один опрос состояния (вызывается из QTimer в GUI)."""
+    def request_poll(self, force: bool = False) -> None:
+        """Просит один опрос состояния (вызывается из QTimer в GUI).
+
+        force=True — единовременный опрос по команде пользователя:
+        он обходит абсолютный пол, но не меняет регулярную частоту.
+        """
+        if force:
+            self._force_poll = True
         self._poll_event.set()
 
     def send_command(self, command: str, value=None) -> None:
@@ -262,12 +271,15 @@ class PollWorker(QThread):
             self._send_command(command, value)
 
     def _do_poll(self) -> None:
-        # Жёсткий пол между запросами: даже если кто-то дёрнет request_poll() чаще,
-        # сервер получит не больше 2 GET /api/now-playing в секунду.
+        # Абсолютный пол: регулярных GET /api/now-playing не больше одного в секунду,
+        # сколько бы раз GUI ни дёрнул request_poll(). Единственное исключение —
+        # один форсированный опрос сразу после команды пользователя.
         now = time.monotonic()
-        wait = POLL_MIN_INTERVAL - (now - self._last_poll)
-        if wait > 0:
-            time.sleep(wait)
+        if not self._force_poll:
+            wait = POLL_MIN_INTERVAL - (now - self._last_poll)
+            if wait > 0:
+                time.sleep(wait)
+        self._force_poll = False
         self._last_poll = time.monotonic()
         try:
             with OPENER.open(API_STATE, timeout=HTTP_TIMEOUT) as resp:
@@ -366,6 +378,7 @@ class PlayerOverlay(_KitOverlay):
         self._dragging = False
         self._user_moved = False
         self._cover_url = ""
+        self._pressed_button = None
         self._last_state: dict = {}
         self._poll_failures = 0
         self._poll_pending = False
@@ -388,10 +401,11 @@ class PlayerOverlay(_KitOverlay):
         # одиночный ускоренный опрос после команды пользователя (частоту не меняет)
         self._fast_poll_timer = QTimer(self)
         self._fast_poll_timer.setSingleShot(True)
-        self._fast_poll_timer.timeout.connect(self._tick)
+        self._fast_poll_timer.timeout.connect(lambda: self._tick(True))
 
         self._place()
         self._make_topmost()
+        self._log_layout_diagnostics()
 
     # ---------------- интерфейс ----------------
     def _build_ui(self) -> None:
@@ -465,6 +479,10 @@ class PlayerOverlay(_KitOverlay):
 
         outer.addLayout(row)
 
+        # кнопки должны быть поверх всего (иначе клик перехватит другой виджет)
+        for button in (self.btn_prev, self.btn_play, self.btn_next):
+            button.raise_()
+
         # --- блок раскрытого состояния ---
         self.extra = QWidget(self)
         extra_layout = QVBoxLayout(self.extra)
@@ -537,11 +555,44 @@ class PlayerOverlay(_KitOverlay):
         style = button.styleSheet().replace("border-radius:17px", f"border-radius:{radius}px")
         button.setStyleSheet(style)
 
+    def _button_at(self, pos: QPoint) -> QPushButton | None:
+        """Какая кнопка под точкой окна — свой hit-test, не зависит от Qt.
+
+        Нужен как страховка: если над кнопкой окажется прозрачный виджет
+        (или Qt не отдаст ей событие), клик всё равно должен сработать.
+        """
+        for button in (self.btn_prev, self.btn_play, self.btn_next,
+                       self.btn_back, self.btn_fwd, self.close_btn):
+            try:
+                if button.isVisible() and button.geometry().contains(pos):
+                    return button
+            except Exception:
+                continue
+        return None
+
     def _position_close_button(self) -> None:
         if not hasattr(self, "close_btn"):
             return
         self.close_btn.move(self.width() - self.close_btn.width() - 6, 6)
         self.close_btn.raise_()
+
+    def _log_layout_diagnostics(self) -> None:
+        """Пишем в cache/overlay.log раскладку — видно, какая сборка запущена."""
+        try:
+            hit = self.childAt(self.btn_play.geometry().center())
+            _log(f"[overlay] сборка {BUILD}")
+            _log(
+                f"[overlay] окно {self.width()}x{self.height()}, "
+                f"кнопки: prev={self.btn_prev.geometry()} "
+                f"play={self.btn_play.geometry()} next={self.btn_next.geometry()}"
+            )
+            _log(
+                f"[overlay] hit-test по центру Play: "
+                f"{'кнопка' if hit is self.btn_play else hit} "
+                f"(прозрачность окна: {self.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)})"
+            )
+        except Exception as exc:
+            _log(f"[overlay] диагностика раскладки не удалась: {exc}")
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().resizeEvent(event)
@@ -637,6 +688,11 @@ class PlayerOverlay(_KitOverlay):
             self._press_pos = event.globalPosition().toPoint()
             self._drag_offset = self._press_pos - self.pos()
             self._dragging = False
+            # Ловим кнопку своим hit-test'ом — клик сработает, даже если
+            # Qt не отдал событие самой кнопке.
+            self._pressed_button = self._button_at(event.position().toPoint())
+            if self._pressed_button is not None:
+                _log(f"[overlay] нажата кнопка {self._pressed_button.text()!r}")
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802 (Qt API)
@@ -654,9 +710,19 @@ class PlayerOverlay(_KitOverlay):
             moved = 0
             if self._press_pos is not None:
                 moved = (event.globalPosition().toPoint() - self._press_pos).manhattanLength()
+            button = self._pressed_button
+            self._pressed_button = None
             self._press_pos = None
             was_dragging = self._dragging
             self._dragging = False
+            if button is not None and not was_dragging and moved <= 6:
+                # клик попал в кнопку — выполняем команду и НЕ сворачиваем оверлей
+                try:
+                    if not button.isDown():
+                        button.click()
+                except Exception as exc:
+                    _log(f"[overlay] кнопка {button.text()!r} не сработала: {exc}")
+                return
             if not was_dragging and moved <= 6:
                 self.toggle_expanded()
         super().mouseReleaseEvent(event)
@@ -728,12 +794,12 @@ class PlayerOverlay(_KitOverlay):
             _log(f"[overlay] не удалось поднять окно в Always-on-Top: {exc}")
 
     # ---------------- данные ----------------
-    def _tick(self) -> None:
-        """Единственный источник запросов: QTimer, 500 мс, без блокировок."""
-        if self._poll_pending:
+    def _tick(self, force: bool = False) -> None:
+        """Единственный источник запросов: QTimer, 1000 мс, без блокировок."""
+        if self._poll_pending and not force:
             return
         self._poll_pending = True
-        self.worker.request_poll()
+        self.worker.request_poll(force=force)
 
     def _on_poll_failed(self) -> None:
         """Сервер не ответил: счётчик неудач, после 5 — закрываемся."""
@@ -809,6 +875,7 @@ class PlayerOverlay(_KitOverlay):
     # ---------------- команды ----------------
     def _command(self, command: str, value=None) -> None:
         """Команда уходит из фонового потока — GUI не блокируется."""
+        _log(f"[overlay] команда {command} отправляется на {API_CMD}/{command}")
         try:
             self.worker.send_command(command, value)
         except Exception as exc:
@@ -827,7 +894,9 @@ class PlayerOverlay(_KitOverlay):
             pass
 
     def _toggle_play(self) -> None:
-        self._command("play" if not self._last_state.get("playing") else "pause")
+        action = "pause" if self._last_state.get("playing") else "play"
+        _log(f"[overlay] play/pause -> {action}")
+        self._command(action)
 
     def _seek_relative(self, offset: float) -> None:
         try:
@@ -857,7 +926,7 @@ def main() -> int:
     # при выходе из приложения гасим поток, иначе Qt ругается на живой QThread
     app.aboutToQuit.connect(overlay.close)
 
-    _log(f"[overlay] запущен: pyoverlaykit={'да' if HAS_KIT else 'нет'}")
+    _log(f"[overlay] запущен: pyoverlaykit={'да' if HAS_KIT else 'нет'}, сборка {BUILD}")
     _log(f"[overlay] состояние: {API_STATE} (опрос {POLL_MS} мс)")
     _log(f"[overlay] команды:   {API_CMD}/<play|pause|next|prev|seek>")
     _log(f"[overlay] лог:       {LOG_FILE}")

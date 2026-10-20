@@ -1812,10 +1812,8 @@ const clipCache = new Map();
   // --- троттлинг публикации состояния (см. tools/overlay_checks/check_frontend_throttle.js) ---
   // Раньше состояние могло уходить на сервер десятки раз в секунду (POST /api/player/state).
   // Теперь — не чаще 1 запроса в секунду: первый уходит сразу, следующие ждут конца окна.
-  var statePublishIntervalMs = 1000;
-  var statePublishLast = 0;
-  var statePublishTimer = null;
-  var statePublishPending = false;
+  var statePublishIntervalMs = 1000;   // жёсткий кулдаун между POST /api/player/state
+  var statePublishLast = 0;            // время последней отправки (мс)
   window.__kadrStatePosts = 0;
   window.__kadrStatePostSkipped = 0;
 
@@ -1847,25 +1845,15 @@ const clipCache = new Map();
   }
 
   function publishPlayerState() {
-    // ограничиваем поток: максимум один POST /api/player/state в секунду
+    // ЖЁСТКИЙ кулдаун: не чаще одного POST /api/player/state в секунду.
+    // Всё, что чаще — молча пропускаем (никаких очередей и повторов).
     const now = Date.now();
-    if (!statePublishLast || now - statePublishLast >= statePublishIntervalMs) {
-      statePublishLast = now;
-      statePublishPending = false;
-      publishPlayerStateNow();
+    if (statePublishLast && now - statePublishLast < statePublishIntervalMs) {
+      window.__kadrStatePostSkipped = (window.__kadrStatePostSkipped || 0) + 1;
       return;
     }
-    statePublishPending = true;
-    window.__kadrStatePostSkipped = (window.__kadrStatePostSkipped || 0) + 1;
-    if (!statePublishTimer) {
-      statePublishTimer = setTimeout(function () {
-        statePublishTimer = null;
-        if (!statePublishPending) return;
-        statePublishPending = false;
-        statePublishLast = Date.now();
-        publishPlayerStateNow();
-      }, statePublishIntervalMs - (now - statePublishLast));
-    }
+    statePublishLast = now;
+    publishPlayerStateNow();
   }
   // --- конец блока троттлинга ---
 
@@ -1911,6 +1899,8 @@ const clipCache = new Map();
     const d = getDuration();
     seekTo((Number(seek.value) / 1000) * d);
     state.seeking = false;
+    // позиция изменилась — сообщаем один раз (кулдаун 1/с внутри publishPlayerState)
+    publishPlayerState();
   });
 
   vol.addEventListener("input", () => {
