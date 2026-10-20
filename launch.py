@@ -327,7 +327,7 @@ def move_to_top_center(window) -> None:
         print(f"overlay: не удалось спозиционировать окно: {e}")
 
 
-def open_overlay(open_main_ui: bool = True) -> int:
+def open_overlay(open_main_ui: bool = True, show_main_ui: bool = False, debug: bool = False) -> int:
     """Открывает прозрачное frameless-окно с оверлеем. Возвращает код выхода."""
     try:
         import webview
@@ -362,22 +362,27 @@ def open_overlay(open_main_ui: bool = True) -> int:
         pass
 
     if open_main_ui:
-        # скрытое окно основного интерфейса: крутит логику плеера и публикует
+        # окно основного интерфейса: крутит логику плеера и публикует
         # текущий трек в /ws, поэтому оверлей работает и без браузера
+        # (--with-ui — показать его на экране, по умолчанию скрытое)
         try:
             webview.create_window(
                 "Курымдык",
                 url=f"http://{HOST}:{PORT}/",
-                hidden=True,
-                focus=False,
-                resizable=False,
+                hidden=not show_main_ui,
+                focus=show_main_ui,
+                resizable=show_main_ui,
             )
-            print("Main UI: hidden window (логика плеера + публикация трека в /ws)")
+            print(
+                "Main UI: hidden window (логика плеера + публикация трека в /ws)"
+                if not show_main_ui
+                else "Main UI: visible window"
+            )
         except Exception as e:
             print(f"Скрытое окно основного UI не создано: {e}")
 
     try:
-        webview.start(debug=False)
+        webview.start(debug=debug)
     except Exception as e:
         print(f"pywebview не запустился: {e}")
         return 3
@@ -460,7 +465,11 @@ def main() -> None:
     print(f"Main UI: http://{HOST}:{PORT}/")
     code = 0
     try:
-        code = open_overlay(open_main_ui="--no-ui" not in sys.argv)
+        code = open_overlay(
+            open_main_ui="--no-ui" not in sys.argv,
+            show_main_ui="--with-ui" in sys.argv,
+            debug="--debug" in sys.argv,
+        )
     finally:
         # оверлей закрыт — гасим сервер
         try:
