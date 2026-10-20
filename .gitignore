@@ -19,3 +19,6 @@ cache/overlay.lock
 .DS_Store
 Thumbs.db
 .pytest-run-*/
+
+# позиция оверлея (запоминается при перетаскивании)
+cache/overlay_state.json

@@ -74,11 +74,24 @@ BUILD = "2026-10-21-std-buttons"
 
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "overlay.log")
 LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "overlay.lock")
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "overlay_state.json")
 
 # Системный прокси Windows не должен перехватывать обращения к 127.0.0.1
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 # ...и для QNetworkAccessManager тоже (иначе POST /api/player/* уйдёт в прокси)
 QNetworkProxyFactory.setUseSystemConfiguration(False)
+
+# ---- глобальная горячая клавиша (Win32 RegisterHotKey, без хуков) ----
+# Почему не «keyboard»: библиотека ставит глобальный low-level хук (LLKHF),
+# он требует прав администратора и конфликтует с античитом игр (EAC/BattlEye).
+# RegisterHotKey — штатный API Windows: без хуков, без админа, работает, когда
+# фокус в игре (нужно для borderless-режима).
+HOTKEY_ID = 0x0B01
+HOTKEY_LABEL = "Ctrl+Shift+O"
+WM_HOTKEY = 0x0312
+MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x0001, 0x0002, 0x0004, 0x4000
+HOTKEY_MODIFIERS = MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT
+HOTKEY_VK = ord("O")
 
 # ---- логирование: ВСЁ пишется в cache/overlay.log (logging.FileHandler) ----
 LOGGER = logging.getLogger("kadr.overlay")
@@ -111,6 +124,38 @@ def _log(message: str) -> None:
     и в файле, и ничего не печатается дважды.
     """
     LOGGER.info(message)
+
+
+def _save_position(x: int, y: int) -> None:
+    """Запоминаем позицию островка — при следующем запуске он вернётся на место."""
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        payload = {
+            "x": int(x),
+            "y": int(y),
+            "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        tmp = STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp, STATE_FILE)
+    except Exception as exc:
+        _log(f"[overlay] позицию сохранить не удалось: {exc}")
+
+
+def _load_position() -> tuple[int, int] | None:
+    """Читаем сохранённую позицию; None — её нет или файл битый."""
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        x = int(data["x"])
+        y = int(data["y"])
+        return x, y
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        _log(f"[overlay] сохранённую позицию прочитать не удалось: {exc}")
+        return None
 
 
 def _say(message: str) -> None:
@@ -146,6 +191,8 @@ def _env_int(name: str, default: int, low: int, high: int) -> int:
 
 
 COLLAPSED_W, COLLAPSED_H = 400, 84
+GHOST_OPACITY = 0.4          # свёрнутый оверлей — полупрозрачный («призрак»)
+SOLID_OPACITY = 1.0          # под курсором / раскрытый / в фокусе — яркий
 EXPANDED_W, EXPANDED_H = 400, 400
 BOTTOM_MARGIN = 40          # отступ от нижнего края экрана, px
 # опрос состояния: 1 GET /api/now-playing в секунду (можно переопределить: 500..1000 мс)
@@ -384,6 +431,8 @@ class PlayerOverlay(QWidget):
         self._dragging = False
         self._user_moved = False
         self._cover_url = ""
+        self._hovered = False
+        self._click_through = False
         self._last_state: dict = {}
         self._poll_failures = 0
         self._poll_pending = False
@@ -394,6 +443,10 @@ class PlayerOverlay(QWidget):
         # QNetworkAccessManager работает по событийной модели Qt: post() мгновенно
         # возвращает QNetworkReply, блокировки нет.
         self.network_manager = QNetworkAccessManager(self)
+
+        # --- глобальная горячая клавиша: Ctrl+Shift+O — режим «сквозь» ---
+        self._hotkey_registered = False
+        self._register_hotkey()
 
         # --- сеть: отдельный поток, GUI не блокируется ---
         self.worker = PollWorker(self)
@@ -414,7 +467,9 @@ class PlayerOverlay(QWidget):
         self._fast_poll_timer.timeout.connect(lambda: self._tick(True))
 
         self._place()
+        self._restore_position()
         self._make_topmost()
+        self._apply_opacity()
         self._log_layout_diagnostics()
 
     # ---------------- интерфейс ----------------
@@ -657,6 +712,41 @@ class PlayerOverlay(QWidget):
         y = geo.bottom() - self.height() - BOTTOM_MARGIN
         self.move(int(x), int(y))
 
+    def _restore_position(self) -> None:
+        """Возвращаем островок на сохранённое место (если оно ещё на экране)."""
+        saved = _load_position()
+        if saved is None:
+            return
+        x, y = saved
+        if not self._position_on_screen(x, y):
+            _log(
+                f"[overlay] сохранённая позиция ({x}, {y}) вне экрана — "
+                "ставлю оверлей по умолчанию"
+            )
+            return
+        self.move(x, y)
+        self._user_moved = True
+        _log(f"[overlay] позиция восстановлена: ({x}, {y})")
+
+    def _position_on_screen(self, x: int, y: int) -> bool:
+        """Точка хотя бы на одном экране? (после смены монитора — нет)."""
+        try:
+            screens = QApplication.screens()
+        except Exception:
+            screens = []
+        for screen in screens:
+            geo = screen.availableGeometry()
+            if geo.contains(x + 1, y + 1):
+                return True
+        return False
+
+    def _save_current_position(self) -> None:
+        """Сохраняем текущие координаты островка."""
+        try:
+            _save_position(self.x(), self.y())
+        except Exception as exc:
+            _log(f"[overlay] позицию сохранить не удалось: {exc}")
+
     def set_expanded(self, expanded: bool) -> None:
         old_height = self.height()
         self._expanded = bool(expanded)
@@ -672,6 +762,8 @@ class PlayerOverlay(QWidget):
         else:
             self._place()
         self._make_topmost()
+        # раскрытый оверлей — всегда яркий, свёрнутый — «призрак»
+        self._apply_opacity()
 
     def toggle_expanded(self) -> None:
         self.set_expanded(not self._expanded)
@@ -711,10 +803,107 @@ class PlayerOverlay(QWidget):
             was_dragging = self._dragging
             self._press_pos = None
             self._dragging = False
-            if not was_dragging and moved <= 6:
+            if was_dragging:
+                # пользователь перетащил островок — запоминаем новое место
+                self._save_current_position()
+            elif moved <= 6:
                 # клик по пустому месту островка — свернуть/развернуть
                 self.toggle_expanded()
         super().mouseReleaseEvent(event)
+
+    # ---------------- режим «сквозь» (click-through) ----------------
+    def _register_hotkey(self) -> None:
+        """Регистрируем глобальную горячую клавишу Ctrl+Shift+O."""
+        if os.name != "nt":
+            return
+        try:
+            user32 = ctypes.windll.user32
+            if user32.RegisterHotKey(None, HOTKEY_ID, HOTKEY_MODIFIERS, HOTKEY_VK):
+                self._hotkey_registered = True
+                _log(f"[overlay] горячая клавиша {HOTKEY_LABEL} включена (режим «сквозь»)")
+            else:
+                _log(
+                    f"[overlay] не удалось занять {HOTKEY_LABEL} — "
+                    "возможно, клавиша уже занята другой программой"
+                )
+        except Exception as exc:
+            _log(f"[overlay] горячую клавишу зарегистрировать не удалось: {exc}")
+
+    def _unregister_hotkey(self) -> None:
+        if os.name != "nt" or not self._hotkey_registered:
+            return
+        try:
+            ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID)
+        except Exception:
+            pass
+        self._hotkey_registered = False
+
+    def nativeEvent(self, event_type, message):  # noqa: N802 (Qt API)
+        """Ловим WM_HOTKEY — сообщение приходит прямо в окно, без фокуса."""
+        if os.name == "nt" and bytes(event_type) == b"windows_generic_MSG":
+            try:
+                import ctypes.wintypes
+
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    self.toggle_click_through()
+                    return (True, 0)
+            except Exception as exc:
+                _log(f"[overlay] ошибка обработки горячей клавиши: {exc}")
+        return super().nativeEvent(event_type, message)
+
+    def toggle_click_through(self) -> None:
+        """Переключаем режим «сквозь»: клики проходят в игру."""
+        self.set_click_through(not self._click_through)
+
+    def set_click_through(self, enabled: bool) -> None:
+        """Включает/выключает прозрачность окна для мыши.
+
+        Два уровня:
+          * WA_TransparentForMouseEvents — уровень Qt (окно не обрабатывает мышь);
+          * WS_EX_TRANSPARENT — уровень Win32 (клики проходят в игру, даже если
+            игра в фокусе). Без него borderless-игра не получит клик.
+        """
+        self._click_through = bool(enabled)
+        self.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, self._click_through
+        )
+        self._apply_win32_style()
+        self._apply_opacity()
+        if self._click_through:
+            _say(f"[overlay] режим «сквозь» ВКЛ ({HOTKEY_LABEL}) — клики уходят в игру")
+        else:
+            _say(f"[overlay] режим «сквозь» ВЫКЛ ({HOTKEY_LABEL}) — оверлей снова кликабелен")
+
+    # ---------------- режим «призрака» ----------------
+    def _apply_opacity(self) -> None:
+        """Прозрачность окна: призрак в свёрнутом виде, яркость под курсором.
+
+        В режиме «сквозь» навести мышь нельзя — оставляем полупрозрачным,
+        чтобы оверлей не мешал игре и был виден.
+        """
+        if self._click_through:
+            target = GHOST_OPACITY
+        elif self._expanded or self._hovered:
+            target = SOLID_OPACITY
+        else:
+            target = GHOST_OPACITY
+        try:
+            self.setWindowOpacity(target)
+        except Exception as exc:
+            _log(f"[overlay] прозрачность применить не удалось: {exc}")
+
+    def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        """Курсор над оверлеем — делаем его непрозрачным."""
+        self._hovered = True
+        self._apply_opacity()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        """Курсор ушёл — снова «призрак» (если оверлей свёрнут)."""
+        self._hovered = False
+        self._apply_opacity()
+        super().leaveEvent(event)
 
     # ---------------- закрытие ----------------
     def _quit(self) -> None:
@@ -739,6 +928,8 @@ class PlayerOverlay(QWidget):
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         # гасим таймер и фоновый поток — иначе процесс не завершится
+        self._save_current_position()
+        self._unregister_hotkey()
         self._stop_timers()
         try:
             self.worker.stop()
@@ -750,7 +941,12 @@ class PlayerOverlay(QWidget):
         super().closeEvent(event)
 
     # ---------------- Win32: Always-on-Top + AOD ----------------
-    def _make_topmost(self) -> None:
+    def _apply_win32_style(self) -> None:
+        """Always-on-Top + (по режиму «сквозь») WS_EX_TRANSPARENT.
+
+        WS_EX_TRANSPARENT на уровне Win32 нужен для borderless-игры: окно
+        остаётся видимым, но клики проходят насквозь, в игру.
+        """
         if os.name != "nt":
             return
         try:
@@ -760,18 +956,18 @@ class PlayerOverlay(QWidget):
             WS_EX_LAYERED = 0x00080000
             WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_NOACTIVATE = 0x08000000
-            WS_EX_TRANSPARENT = 0x00000020  # клики проходят сквозь — нам НЕ нужно
+            WS_EX_TRANSPARENT = 0x00000020
             HWND_TOPMOST = -1
             SWP_NOSIZE = 0x0001
             SWP_NOMOVE = 0x0002
             SWP_NOACTIVATE = 0x0010
             style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            user32.SetWindowLongW(
-                hwnd,
-                GWL_EXSTYLE,
-                (style | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
-                & ~WS_EX_TRANSPARENT,
-            )
+            style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+            if self._click_through:
+                style |= WS_EX_TRANSPARENT
+            else:
+                style &= ~WS_EX_TRANSPARENT
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
             user32.SetWindowPos(
                 hwnd,
                 HWND_TOPMOST,
@@ -782,7 +978,10 @@ class PlayerOverlay(QWidget):
                 SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
             )
         except Exception as exc:
-            _log(f"[overlay] не удалось поднять окно в Always-on-Top: {exc}")
+            _log(f"[overlay] не удалось применить стиль окна: {exc}")
+
+    def _make_topmost(self) -> None:
+        self._apply_win32_style()
 
     # ---------------- данные ----------------
     def _tick(self, force: bool = False) -> None:
@@ -981,6 +1180,8 @@ def main() -> int:
     _say(f"[overlay] состояние: {API_STATE} (опрос {POLL_MS} мс)")
     _say(f"[overlay] команды:   {API_CMD}/<play|pause|next|prev|seek>")
     _say(f"[overlay] лог:       {LOG_FILE}")
+    _say(f"[overlay] позиция:   {STATE_FILE}")
+    _say(f"[overlay] горячая клавиша: {HOTKEY_LABEL} — режим «сквозь» (клики в игру)")
     try:
         return app.exec()
     finally:

@@ -297,5 +297,101 @@ for _ in range(5):
     app.processEvents()
 check("окно закрыто после 5 ошибок", not w3.isVisible())
 
+print("=== 6. запоминание позиции окна (cache/overlay_state.json) ===")
+# тест не должен трогать настоящий файл пользователя — подменяем путь
+import tempfile
+
+_real_state_file = ov.STATE_FILE
+_tmp_state = os.path.join(tempfile.gettempdir(), "kadr_overlay_state_test.json")
+if os.path.exists(_tmp_state):
+    os.remove(_tmp_state)
+ov.STATE_FILE = _tmp_state
+
+w4 = ov.PlayerOverlay()
+w4.show()
+app.processEvents()
+w4.move(777, 555)
+w4._save_current_position()
+check("файл состояния создан", os.path.exists(_tmp_state), _tmp_state)
+if os.path.exists(_tmp_state):
+    with open(_tmp_state, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    check("в файле сохранены координаты", data.get("x") == 777 and data.get("y") == 555, data)
+    check("есть метка времени", bool(data.get("saved_at")), data)
+
+# новый оверлей должен вернуться на сохранённое место
+w5 = ov.PlayerOverlay()
+w5.show()
+app.processEvents()
+check("позиция восстановлена при запуске", (w5.x(), w5.y()) == (777, 555),
+      f"({w5.x()}, {w5.y()})")
+
+# позиция вне экрана игнорируется (после смены монитора)
+ov.STATE_FILE = _tmp_state
+with open(_tmp_state, "w", encoding="utf-8") as fh:
+    json.dump({"x": -99999, "y": -99999, "saved_at": "test"}, fh)
+w6 = ov.PlayerOverlay()
+w6.show()
+app.processEvents()
+check("несуществующая позиция не ломает запуск", w6.isVisible())
+check("при несуществующей позиции оверлей на экране",
+      w6.geometry().intersects(app.primaryScreen().availableGeometry()),
+      f"{w6.geometry()}")
+ov.STATE_FILE = _real_state_file
+w4.close()
+w5.close()
+w6.close()
+app.processEvents()
+
+print("=== 7. режим «сквозь» (Ctrl+Shift+O) ===")
+w7 = ov.PlayerOverlay()
+w7.show()
+app.processEvents()
+w7.set_click_through(True)
+app.processEvents()
+check("режим «сквозь» включён", w7._click_through is True)
+check("окно прозрачно для мыши (Qt)", w7.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+w7.set_click_through(False)
+app.processEvents()
+check("режим «сквозь» выключен", w7._click_through is False)
+check("окно снова кликабельно (Qt)", not w7.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
+w7.toggle_click_through()
+check("toggle_click_through переключает режим", w7._click_through is True)
+w7.toggle_click_through()
+check("повторный toggle выключает режим", w7._click_through is False)
+check("горячая клавиша объявлена как Ctrl+Shift+O", ov.HOTKEY_LABEL == "Ctrl+Shift+O", ov.HOTKEY_LABEL)
+w7.close()
+app.processEvents()
+
+print("=== 8. режим «призрака» (полупрозрачность) ===")
+w8 = ov.PlayerOverlay()
+w8.show()
+app.processEvents()
+check("свёрнутый оверлей полупрозрачный (0.4)",
+      abs(w8.windowOpacity() - ov.GHOST_OPACITY) < 0.01, f"({w8.windowOpacity()})")
+w8._hovered = True
+w8._apply_opacity()
+check("под курсором оверлей яркий (1.0)",
+      abs(w8.windowOpacity() - ov.SOLID_OPACITY) < 0.01, f"({w8.windowOpacity()})")
+w8._hovered = False
+w8._apply_opacity()
+check("после ухода курсора снова полупрозрачный",
+      abs(w8.windowOpacity() - ov.GHOST_OPACITY) < 0.01, f"({w8.windowOpacity()})")
+w8.set_expanded(True)
+app.processEvents()
+check("раскрытый оверлей яркий (1.0)",
+      abs(w8.windowOpacity() - ov.SOLID_OPACITY) < 0.01, f"({w8.windowOpacity()})")
+w8.set_expanded(False)
+app.processEvents()
+check("свёрнутый оверлей снова полупрозрачный",
+      abs(w8.windowOpacity() - ov.GHOST_OPACITY) < 0.01, f"({w8.windowOpacity()})")
+w8.set_click_through(True)
+w8._apply_opacity()
+check("в режиме «сквозь» оверлей остаётся полупрозрачным",
+      abs(w8.windowOpacity() - ov.GHOST_OPACITY) < 0.01, f"({w8.windowOpacity()})")
+w8.set_click_through(False)
+w8.close()
+app.processEvents()
+
 print("\nИТОГ:", "ВСЁ ОК" if ok else "ЕСТЬ ОШИБКИ")
 sys.exit(0 if ok else 1)
