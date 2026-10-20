@@ -542,6 +542,9 @@ class Hub:
 
 hub = Hub()
 
+# Текущий трек для оверлея (frontend/overlay.html): {"playing": bool, "track": dict|None, ...}
+NOW_PLAYING: dict[str, Any] = {"playing": False, "track": None, "position": 0.0, "at": 0.0}
+
 
 @app.exception_handler(ClientDisconnect)
 async def _client_gone(_request, _exc) -> Response:
@@ -1958,6 +1961,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
     await hub.connect(ws)
     try:
         await ws.send_json({"type": "hello", "ollama": ollama.status.to_dict()})
+        # текущий трек — чтобы оверлей сразу показал его при подключении
+        await ws.send_json({"type": "now_playing", **NOW_PLAYING})
         while True:
             # Держим соединение, клиент может пинговать
             msg = await ws.receive_text()
@@ -1967,6 +1972,50 @@ async def ws_endpoint(ws: WebSocket) -> None:
         hub.disconnect(ws)
     except Exception:
         hub.disconnect(ws)
+
+
+@app.post("/api/now-playing")
+async def api_now_playing(body: dict[str, Any]) -> dict[str, Any]:
+    """Сообщаем оверлею, какой трек играет. Событие уходит всем клиентам /ws."""
+    track_id = str((body or {}).get("track_id") or "").strip()
+    playing = bool((body or {}).get("playing", True))
+    title = str((body or {}).get("title") or "").strip()
+    artist = str((body or {}).get("artist") or "").strip()
+    album = str((body or {}).get("album") or "").strip()
+    cover = str((body or {}).get("cover") or "").strip()
+    try:
+        position = max(0.0, float((body or {}).get("position") or 0.0))
+    except (TypeError, ValueError):
+        position = 0.0
+
+    info: dict[str, Any] | None = None
+    track = library.get(track_id) if track_id else None
+    if track is not None:
+        info = {
+            "id": track.id,
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
+            "duration": float(track.duration or 0.0),
+            "cover": cover,
+        }
+    elif title:
+        # предпрослушивание/внешний трек — в библиотеке его нет
+        info = {
+            "id": track_id or f"ext:{title}",
+            "title": title,
+            "artist": artist,
+            "album": album,
+            "duration": 0.0,
+            "cover": cover,
+        }
+
+    NOW_PLAYING["playing"] = bool(info) and playing
+    NOW_PLAYING["track"] = info
+    NOW_PLAYING["position"] = round(position, 2)
+    NOW_PLAYING["at"] = time.time()
+    await hub.broadcast({"type": "now_playing", **NOW_PLAYING})
+    return {"ok": True, "now_playing": NOW_PLAYING}
 
 
 @app.get("/api/cache")
@@ -2012,6 +2061,15 @@ async def index_page() -> FileResponse:
     if not page.is_file():
         raise HTTPException(500, "Не найден frontend/index.html")
     return FileResponse(page)
+
+
+@app.get("/overlay")
+async def overlay_page() -> FileResponse:
+    """Компактный оверлей-островок (прозрачное окно поверх игры)."""
+    page = FRONTEND_DIR / "overlay.html"
+    if not page.is_file():
+        raise HTTPException(404, "Не найден frontend/overlay.html")
+    return FileResponse(page, headers={"Cache-Control": "no-cache"})
 
 
 def run() -> None:

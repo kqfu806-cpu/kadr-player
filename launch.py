@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Запуск Курымдык — только сайт: venv → pip → uvicorn → браузер."""
+"""Запуск Курымдык — только сайт: venv → pip → uvicorn → прозрачное окно-оверлей (pywebview)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -21,6 +22,13 @@ else:
 HOST = "127.0.0.1"
 PORT = 8000
 MIN_VER = (3, 10)
+
+# Оверлей: адрес страницы и размеры нативного окна (свёрнуто / раскрыто)
+OVERLAY_PATH = "/overlay"
+OVERLAY_URL = f"http://{HOST}:{PORT}{OVERLAY_PATH}"
+OVERLAY_W = 380
+OVERLAY_H_COLLAPSED = 92
+OVERLAY_H_EXPANDED = 470
 
 CANDIDATES: list[list[str]] = [
     ["python"],
@@ -148,7 +156,7 @@ def cleanup_old_files() -> None:
                 if f.is_file():
                     try:
                         f.unlink()
-                        _log(f"cleanup: removed {f.name}")
+                        _log(f"cleanup: removed {f.name} age {age:.1f}d")
                     except Exception as e:
                         _log(f"cleanup: {f.name} error {e}")
     except Exception as e:
@@ -168,7 +176,7 @@ def cleanup_old_files() -> None:
             ".env", "requirements.txt", "run.bat", "start_app.bat", "launch.py",
             "install_autostart.bat", "remove_autostart.bat"
         }
-        protected_dirs = {"backend", "frontend", "tools", "venv", "cache", "docs"}
+        protected_dirs = ["backend", "frontend", "tools", "venv", "cache", "docs"]
         for pat in ["*.tmp", "*.temp", "*.cache", "*.old", "*.orig", "*.orig.bak"]:
             for f in ROOT.glob(pat):
                 try:
@@ -210,10 +218,10 @@ def cleanup_old_files() -> None:
                             _log(f"cleanup: keep {f.relative_to(ROOT)} (protected)")
                             continue
                         f.unlink()
-                        _log(f"cleanup: removed {f.relative_to(ROOT)} (TASK7 cache {pat})")
+                        _log(f"cleanup: removed {f.relative_to(ROOT)} ({pat})")
                     except Exception as e:
                         _log(f"cleanup: {f} error {e}")
-            # также проверить cache/logs не трогать, cache/*.sqlite3 не трогать — уже выше
+            # также cache/logs не трогать, cache/*.sqlite3 не трогать — уже выше
     except Exception as e:
         _log(f"cleanup: TASK7 cache error {e}")
 
@@ -223,7 +231,6 @@ def cleanup_old_files() -> None:
             for d in ROOT.glob(pat):
                 try:
                     if d.is_dir():
-                        # только если пустая
                         if not any(d.iterdir()):
                             d.rmdir()
                             _log(f"cleanup: removed empty dir {d.name} (TASK7)")
@@ -231,7 +238,7 @@ def cleanup_old_files() -> None:
                             _log(f"cleanup: keep {d.name} not empty")
                 except Exception as e:
                     _log(f"cleanup: {d.name} error {e}")
-        # также .pytest_run_* внутри cache? проверить
+        # также .pytest_run_* внутри cache? проверить отдельно
         for pat in [".pytest_run_*", ".pytest-run-*"]:
             for d in (ROOT / "cache").glob(pat) if (ROOT / "cache").exists() else []:
                 try:
@@ -245,6 +252,137 @@ def cleanup_old_files() -> None:
 
     _log("cleanup: protected venv/, backend/, frontend/, tools/, cache/*.sqlite3, cache/logs/, .env, requirements.txt, run.bat, start_app.bat, launch.py, install_autostart.bat, remove_autostart.bat, docs/ — not touched")
     _log("cleanup: done")
+
+# ---------- прозрачное окно-оверлей ----------
+
+def wait_for_server(url: str, timeout: float = 40.0) -> bool:
+    """Ждём, пока uvicorn поднимет /api/health."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.4)
+    return False
+
+
+class OverlayApi:
+    """JS-API оверлея: раскрытие/сворачивание меняет размер нативного окна."""
+
+    def __init__(self) -> None:
+        self.window = None
+        self.expanded = False
+
+    def bind(self, window) -> None:
+        self.window = window
+
+    def set_expanded(self, expanded: bool) -> bool:
+        expanded = bool(expanded)
+        if self.expanded == expanded:
+            return self.expanded
+        self.expanded = expanded
+        h = OVERLAY_H_EXPANDED if expanded else OVERLAY_H_COLLAPSED
+        try:
+            win = self.window
+            if win is None:
+                return self.expanded
+            # держим верх-центр: считаем центр до ресайза и возвращаем окно туда же
+            try:
+                center_x = int(win.x) + int(win.width) // 2
+                top_y = int(win.y)
+            except Exception:
+                center_x = None
+                top_y = None
+            win.resize(OVERLAY_W, h)
+            if center_x is not None and top_y is not None:
+                win.move(center_x - OVERLAY_W // 2, top_y)
+            print(f"overlay: {'expanded' if expanded else 'collapsed'} -> {OVERLAY_W}x{h}")
+        except Exception as e:
+            print(f"overlay resize error: {e}")
+        return self.expanded
+
+    def ping(self) -> str:
+        return "pong"
+
+
+def move_to_top_center(window) -> None:
+    """Ставим окно по верхнему краю, по центру основного экрана."""
+    try:
+        import webview
+        screens = getattr(webview, "screens", None) or []
+        if not screens:
+            return
+        screen = screens[0]
+        sw = int(getattr(screen, "width", 0) or 0)
+        sh = int(getattr(screen, "height", 0) or 0)
+        if sw <= 0 or sh <= 0:
+            return
+        x = (sw - OVERLAY_W) // 2
+        y = 24
+        window.move(x, y)
+        print(f"overlay: window at {x},{y} (screen {sw}x{sh})")
+    except Exception as e:
+        print(f"overlay: не удалось спозиционировать окно: {e}")
+
+
+def open_overlay(open_main_ui: bool = True) -> int:
+    """Открывает прозрачное frameless-окно с оверлеем. Возвращает код выхода."""
+    try:
+        import webview
+    except ImportError:
+        print("ERROR: не установлен pywebview. Установи: pip install pywebview")
+        return 2
+
+    api = OverlayApi()
+    window = webview.create_window(
+        "Курымдык — оверлей",
+        url=OVERLAY_URL,
+        js_api=api,
+        width=OVERLAY_W,
+        height=OVERLAY_H_COLLAPSED,
+        frameless=True,          # без рамки
+        transparent=True,        # прозрачное окно: видно игру
+        on_top=True,             # = always_on_top, всегда поверх игр
+        background_color="#00000000",
+        easy_drag=False,
+        resizable=False,
+        confirm_close=False,
+        text_select=False,
+    )
+    api.bind(window)
+
+    def _on_loaded():
+        move_to_top_center(window)
+
+    try:
+        window.events.loaded += _on_loaded
+    except Exception:
+        pass
+
+    if open_main_ui:
+        # скрытое окно основного интерфейса: крутит логику плеера и публикует
+        # текущий трек в /ws, поэтому оверлей работает и без браузера
+        try:
+            webview.create_window(
+                "Курымдык",
+                url=f"http://{HOST}:{PORT}/",
+                hidden=True,
+                focus=False,
+                resizable=False,
+            )
+            print("Main UI: hidden window (логика плеера + публикация трека в /ws)")
+        except Exception as e:
+            print(f"Скрытое окно основного UI не создано: {e}")
+
+    try:
+        webview.start(debug=False)
+    except Exception as e:
+        print(f"pywebview не запустился: {e}")
+        return 3
+    return 0
+
 
 def main() -> None:
     os.chdir(ROOT)
@@ -294,7 +432,7 @@ def main() -> None:
     run([py, "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")])
 
     probe = subprocess.run(
-        [py, "-c", "import fastapi, uvicorn, mutagen, httpx, PIL; print('imports-ok')"],
+        [py, "-c", "import fastapi, uvicorn, mutagen, httpx, PIL, webview; print('imports-ok')"],
         cwd=str(ROOT), capture_output=True, text=True,
     )
     if probe.returncode != 0:
@@ -307,23 +445,41 @@ def main() -> None:
     print(f"\n[3/3] Starting {url}")
     print(f"Uvicorn running on {url}")
 
-    # открыть браузер по умолчанию через 1.5с в фоне
-    def _open_browser():
-        time.sleep(1.5)
-        try:
-            webbrowser.open(url)
-            print(f"Browser opened {url}")
-        except Exception as e:
-            print(f"webbrowser.open failed: {e}")
-
-    import threading
-    threading.Thread(target=_open_browser, daemon=True).start()
-
-    # запустить uvicorn — блокирующий вызов, лог в консоль
+    # запустить uvicorn отдельным процессом, чтобы главный поток жил в GUI pywebview
     cmd = [py, "-m", "uvicorn", "backend.main:app", "--host", HOST, "--port", str(PORT)]
     print(">", " ".join(cmd))
-    # Uvicorn сам напишет "Uvicorn running on http://127.0.0.1:8000"
-    raise SystemExit(subprocess.call(cmd, cwd=str(ROOT)))
+    proc = subprocess.Popen(cmd, cwd=str(ROOT))
+
+    # дождаться готовности сервера, иначе оверлей откроется пустым
+    if not wait_for_server(f"{url}/api/health", timeout=45.0):
+        print("WARNING: сервер не ответил на /api/health за 45 c — оверлей может не подключиться")
+    else:
+        print(f"Server ready: {url}")
+
+    print(f"Overlay: {OVERLAY_URL}")
+    print(f"Main UI: http://{HOST}:{PORT}/")
+    code = 0
+    try:
+        code = open_overlay(open_main_ui="--no-ui" not in sys.argv)
+    finally:
+        # оверлей закрыт — гасим сервер
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        except Exception:
+            pass
+    if code in (2, 3):
+        # pywebview недоступен/не запустился — подстраховка: та же страница в браузере
+        print("Fallback: открываю оверлей в браузере")
+        try:
+            webbrowser.open(OVERLAY_URL)
+        except Exception as e:
+            print(f"webbrowser.open failed: {e}")
+        code = subprocess.call([py, "-m", "uvicorn", "backend.main:app", "--host", HOST, "--port", str(PORT)], cwd=str(ROOT))
+    raise SystemExit(code)
 
 if __name__ == "__main__":
     try:
