@@ -34,6 +34,9 @@ from PyQt6.QtWidgets import (
 
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "overlay.log")
 
+# Системный прокси Windows не должен перехватывать обращения к 127.0.0.1
+OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def _log(message: str) -> None:
     """Пишем в консоль и в cache/overlay.log — запускается через pythonw, консоли нет."""
@@ -137,7 +140,7 @@ class _PollTask(QRunnable):
 
     def run(self) -> None:
         try:
-            with urllib.request.urlopen(API_STATE, timeout=2) as resp:
+            with OPENER.open(API_STATE, timeout=2) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except Exception:
             # важно: сигнал ошибки всегда эмитится, иначе опрос встанет
@@ -150,7 +153,7 @@ class _PollTask(QRunnable):
         cover = str((data.get("track") or {}).get("cover") or "")
         if cover and cover != self.last_cover:
             try:
-                with urllib.request.urlopen(cover, timeout=3) as resp:
+                with OPENER.open(cover, timeout=3) as resp:
                     self.signals.cover.emit(resp.read())
             except Exception:
                 pass
@@ -178,7 +181,7 @@ class _CommandTask(QRunnable):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(request, timeout=3):
+            with OPENER.open(request, timeout=3):
                 pass
         except Exception:
             pass
